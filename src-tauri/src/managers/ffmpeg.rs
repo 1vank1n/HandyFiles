@@ -68,30 +68,59 @@ impl FfmpegManager {
     }
 
     fn find_ffmpeg() -> Option<PathBuf> {
-        // 1. Common macOS Homebrew paths
-        let common_paths = [
+        // 1. Check common paths per platform
+        #[cfg(target_os = "macos")]
+        let common_paths: &[&str] = &[
             "/opt/homebrew/bin/ffmpeg",
             "/usr/local/bin/ffmpeg",
             "/usr/bin/ffmpeg",
         ];
 
-        for path in &common_paths {
+        #[cfg(target_os = "linux")]
+        let common_paths: &[&str] = &[
+            "/usr/bin/ffmpeg",
+            "/usr/local/bin/ffmpeg",
+            "/snap/bin/ffmpeg",
+        ];
+
+        #[cfg(target_os = "windows")]
+        let common_paths: &[&str] = &[];
+
+        #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+        let common_paths: &[&str] = &[];
+
+        for path in common_paths {
             let p = Path::new(path);
             if p.is_file() {
                 return Some(p.to_path_buf());
             }
         }
 
-        // 2. Check PATH via `which`
-        if let Ok(output) = Command::new("which").arg("ffmpeg").output() {
-            if output.status.success() {
-                let path_str = String::from_utf8_lossy(&output.stdout)
-                    .trim()
-                    .to_string();
-                if !path_str.is_empty() {
-                    let p = PathBuf::from(&path_str);
-                    if p.is_file() {
-                        return Some(p);
+        // 2. Check PATH
+        #[cfg(unix)]
+        {
+            if let Ok(output) = Command::new("which").arg("ffmpeg").output() {
+                if output.status.success() {
+                    let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    if !path_str.is_empty() {
+                        return Some(PathBuf::from(path_str));
+                    }
+                }
+            }
+        }
+
+        #[cfg(windows)]
+        {
+            if let Ok(output) = Command::new("where").arg("ffmpeg").output() {
+                if output.status.success() {
+                    let path_str = String::from_utf8_lossy(&output.stdout)
+                        .lines()
+                        .next()
+                        .unwrap_or("")
+                        .trim()
+                        .to_string();
+                    if !path_str.is_empty() {
+                        return Some(PathBuf::from(path_str));
                     }
                 }
             }

@@ -1,5 +1,4 @@
 {
-  "$schema": "https://raw.githubusercontent.com/nicchris/nicchris/main/schema.json",
   "productName": "HandyFiles",
   "version": "0.1.0",
   "identifier": "com.il-studio.handyfiles",
@@ -38,6 +37,19 @@
     "resources": [],
     "macOS": {
       "minimumSystemVersion": "12.0"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    },
+    "linux": {
+      "deb": {
+        "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0"]
+      },
+      "appimage": {
+        "bundleMediaFramework": true
+      }
     }
   }
 }

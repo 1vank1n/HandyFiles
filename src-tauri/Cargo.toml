@@ -41,8 +41,19 @@ rubato = "0.15"
 hound = "3.5"
 
 # Transcription (same crate as Handy uses)
-transcribe-rs = { version = "0.3", features = ["whisper-cpp", "whisper-metal", "onnx"] }
+transcribe-rs = { version = "0.3", features = ["whisper-cpp", "onnx"] }
 
 # Archive extraction (for GigaAM models)
 tar = "0.4"
 flate2 = "1.0"
+
+# ── Platform-specific GPU acceleration ──────────────────────────
+
+[target.'cfg(target_os = "macos")'.dependencies]
+transcribe-rs = { version = "0.3", features = ["whisper-cpp", "whisper-metal", "onnx"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+transcribe-rs = { version = "0.3", features = ["whisper-cpp", "onnx"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+transcribe-rs = { version = "0.3", features = ["whisper-cpp", "onnx"] }
