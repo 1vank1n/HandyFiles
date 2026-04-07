@@ -26,6 +26,7 @@ interface TranscriptionStore {
 
   addFiles: (paths: string[]) => Promise<void>;
   transcribeFile: (fileId: string) => Promise<void>;
+  retranscribeFile: (fileId: string) => Promise<void>;
   transcribeAll: () => Promise<void>;
   selectFile: (fileId: string) => void;
   clearCompleted: () => Promise<void>;
@@ -58,6 +59,24 @@ export const useTranscriptionStore = create<TranscriptionStore>((set, get) => ({
       await invoke("transcribe_file", { fileId });
     } catch (e) {
       console.error("Transcription failed:", e);
+    }
+  },
+
+  retranscribeFile: async (fileId: string) => {
+    try {
+      await invoke("reset_file_for_retranscribe", { fileId });
+      // Update local state
+      set((state) => ({
+        files: state.files.map((f) =>
+          f.id === fileId
+            ? { ...f, status: "queued" as const, result: undefined, duration_ms: undefined, error: undefined }
+            : f,
+        ),
+      }));
+      // Start transcription
+      await invoke("transcribe_file", { fileId });
+    } catch (e) {
+      console.error("Re-transcription failed:", e);
     }
   },
 

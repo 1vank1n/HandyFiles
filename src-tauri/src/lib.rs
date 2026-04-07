@@ -47,6 +47,7 @@ pub fn run() {
             commands::queue_files,
             commands::get_queue,
             commands::clear_completed,
+            commands::reset_file_for_retranscribe,
             // Transcription
             commands::transcribe_file,
         ])

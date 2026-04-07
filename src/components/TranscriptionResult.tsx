@@ -5,7 +5,7 @@ import { writeTextFile } from "@tauri-apps/plugin-fs";
 import { useState } from "react";
 
 export default function TranscriptionResult() {
-  const { files, selectedFileId } = useTranscriptionStore();
+  const { files, selectedFileId, retranscribeFile } = useTranscriptionStore();
   const [copied, setCopied] = useState(false);
 
   const file = files.find((f) => f.id === selectedFileId);
@@ -50,7 +50,14 @@ export default function TranscriptionResult() {
             </span>
           )}
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-1.5">
+          <button
+            onClick={() => retranscribeFile(file.id)}
+            className="rounded-md px-3 py-1 text-xs font-medium text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+            title="Перетранскрибировать другой моделью"
+          >
+            Повторить
+          </button>
           <button
             onClick={handleCopy}
             className="rounded-md px-3 py-1 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors"

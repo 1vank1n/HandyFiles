@@ -28,13 +28,15 @@ pub fn delete_model(model_id: String, state: State<AppState>) -> Result<(), Stri
 
 #[tauri::command]
 pub fn select_model(model_id: String, state: State<AppState>) -> Result<(), String> {
-    // Verify model exists
     let path = state.models.get_model_path_by_id(&model_id);
     if path.is_none() {
         return Err("Модель не скачана".into());
     }
-    let mut selected = state.selected_model.lock().unwrap();
-    *selected = Some(model_id);
+    {
+        let mut selected = state.selected_model.lock().unwrap();
+        *selected = Some(model_id);
+    }
+    state.save_preferences();
     Ok(())
 }
 
@@ -45,8 +47,11 @@ pub fn get_selected_model(state: State<AppState>) -> Option<String> {
 
 #[tauri::command]
 pub fn set_language(language: String, state: State<AppState>) {
-    let mut lang = state.selected_language.lock().unwrap();
-    *lang = language;
+    {
+        let mut lang = state.selected_language.lock().unwrap();
+        *lang = language;
+    }
+    state.save_preferences();
 }
 
 #[tauri::command]
@@ -139,6 +144,20 @@ pub fn get_queue(state: State<AppState>) -> Vec<QueuedFile> {
 pub fn clear_completed(state: State<AppState>) {
     let mut queue = state.queued_files.lock().unwrap();
     queue.retain(|f| f.status != FileStatus::Completed && f.status != FileStatus::Error);
+}
+
+#[tauri::command]
+pub fn reset_file_for_retranscribe(file_id: String, state: State<AppState>) -> Result<(), String> {
+    let mut queue = state.queued_files.lock().unwrap();
+    let file = queue
+        .iter_mut()
+        .find(|f| f.id == file_id)
+        .ok_or("Файл не найден")?;
+    file.status = FileStatus::Queued;
+    file.result = None;
+    file.duration_ms = None;
+    file.error = None;
+    Ok(())
 }
 
 // ── Transcription commands ──────────────────────────────────────
