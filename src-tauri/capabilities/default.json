@@ -1,0 +1,18 @@
+{
+  "identifier": "default",
+  "description": "Default capabilities for HandyFiles",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "dialog:default",
+    "dialog:allow-open",
+    "dialog:allow-save",
+    "fs:default",
+    "fs:allow-read",
+    "fs:allow-write",
+    "os:default",
+    "process:default",
+    "store:default",
+    "opener:default"
+  ]
+}

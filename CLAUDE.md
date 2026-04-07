@@ -10,7 +10,7 @@ Cross-platform desktop app for drag-and-drop audio/video transcription using loc
 - **Backend:** Rust (tokio, serde, transcribe-rs)
 - **Audio processing:** FFmpeg (bundled binary + system fallback) + hound (WAV)
 - **Type bindings:** tauri-specta (auto-generated TS types from Rust)
-- **Package manager:** Bun
+- **Package manager:** pnpm
 
 ## Project Structure
 
@@ -68,9 +68,9 @@ HandyFiles/
 
 ```bash
 # Development
-bun install              # Install frontend dependencies
-bun run tauri dev        # Run in dev mode (frontend + Rust backend)
-bun run tauri build      # Build production app
+pnpm install              # Install frontend dependencies
+pnpm tauri dev            # Run in dev mode (frontend + Rust backend)
+pnpm tauri build          # Build production app
 
 # Rust
 cd src-tauri && cargo check    # Type-check Rust code
@@ -78,9 +78,8 @@ cd src-tauri && cargo clippy   # Lint Rust code
 cd src-tauri && cargo test     # Run Rust tests
 
 # Frontend
-bun run dev              # Frontend only (without Tauri)
-bun run build            # Build frontend only
-bun run lint             # Lint frontend
+pnpm dev                  # Frontend only (without Tauri)
+pnpm build                # Build frontend only
 ```
 
 ## Reference

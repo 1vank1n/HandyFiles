@@ -1,0 +1,43 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicchris/nicchris/main/schema.json",
+  "productName": "HandyFiles",
+  "version": "0.1.0",
+  "identifier": "com.il-studio.handyfiles",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "HandyFiles",
+        "width": 640,
+        "height": 560,
+        "minWidth": 480,
+        "minHeight": 400,
+        "center": true,
+        "dragDropEnabled": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": [],
+    "macOS": {
+      "minimumSystemVersion": "12.0"
+    }
+  }
+}
