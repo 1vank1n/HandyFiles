@@ -6,32 +6,59 @@ import DropZone from "./components/DropZone";
 import ModelSelector from "./components/ModelSelector";
 import FileQueue from "./components/FileQueue";
 import TranscriptionResult from "./components/TranscriptionResult";
+import SettingsPanel from "./components/SettingsPanel";
 
 const SUPPORTED_EXTENSIONS = [
   "mp4", "mkv", "mov", "avi", "webm",
   "mp3", "wav", "flac", "ogg", "m4a", "aac", "wma",
 ];
 
+const LANGUAGE_NAMES: Record<string, string> = {
+  ru: "Русский",
+  en: "English",
+  uk: "Українська",
+  de: "Deutsch",
+  fr: "Français",
+  es: "Español",
+  it: "Italiano",
+  pt: "Português",
+  zh: "中文",
+  ja: "日本語",
+  ko: "한국어",
+  auto: "Авто",
+};
+
 function App() {
   const [isDragging, setIsDragging] = useState(false);
   const [showModels, setShowModels] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
   const { fetchModels, initListeners: initModelListeners, selectedModelId, language } =
     useModelStore();
-  const { addFiles, initListeners: initTranscriptionListeners, files } =
+  const { addFiles, transcribeFile, initListeners: initTranscriptionListeners, files } =
     useTranscriptionStore();
 
   const handleFileDrop = useCallback(
-    (paths: string[]) => {
+    async (paths: string[]) => {
       const supported = paths.filter((p) => {
         const ext = p.split(".").pop()?.toLowerCase() ?? "";
         return SUPPORTED_EXTENSIONS.includes(ext);
       });
       if (supported.length > 0) {
-        addFiles(supported);
+        await addFiles(supported);
+
+        // Auto-transcribe if model is selected
+        if (selectedModelId) {
+          // Get fresh state after addFiles
+          const store = useTranscriptionStore.getState();
+          const queued = store.files.filter((f) => f.status === "queued");
+          for (const file of queued) {
+            transcribeFile(file.id);
+          }
+        }
       }
     },
-    [addFiles],
+    [addFiles, transcribeFile, selectedModelId],
   );
 
   useEffect(() => {
@@ -67,6 +94,9 @@ function App() {
   );
 
   const hasFiles = files.length > 0;
+  const isProcessing = files.some(
+    (f) => f.status === "converting" || f.status === "transcribing",
+  );
 
   return (
     <div className="flex h-full flex-col p-4 gap-3">
@@ -75,17 +105,32 @@ function App() {
         <h1 className="text-lg font-semibold text-[var(--text-primary)]">
           HandyFiles
         </h1>
-        <button
-          onClick={() => setShowModels(!showModels)}
-          className={`rounded-lg px-3 py-1.5 text-sm transition-colors ${
-            showModels
-              ? "bg-[var(--bg-tertiary)] text-[var(--text-primary)]"
-              : "text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
-          }`}
-        >
-          {showModels ? "Закрыть" : "Модели"}
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => { setShowSettings(!showSettings); setShowModels(false); }}
+            className={`rounded-lg px-3 py-1.5 text-sm transition-colors ${
+              showSettings
+                ? "bg-[var(--bg-tertiary)] text-[var(--text-primary)]"
+                : "text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
+            }`}
+          >
+            Настройки
+          </button>
+          <button
+            onClick={() => { setShowModels(!showModels); setShowSettings(false); }}
+            className={`rounded-lg px-3 py-1.5 text-sm transition-colors ${
+              showModels
+                ? "bg-[var(--bg-tertiary)] text-[var(--text-primary)]"
+                : "text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
+            }`}
+          >
+            Модели
+          </button>
+        </div>
       </div>
+
+      {/* Settings panel */}
+      {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
 
       {/* Model selector panel */}
       {showModels && <ModelSelector />}
@@ -98,7 +143,7 @@ function App() {
         <div className="rounded-lg bg-[var(--error)]/10 border border-[var(--error)]/30 px-4 py-2.5 text-sm text-[var(--error)]">
           Выберите модель для транскрибации.{" "}
           <button
-            onClick={() => setShowModels(true)}
+            onClick={() => { setShowModels(true); setShowSettings(false); }}
             className="underline hover:no-underline"
           >
             Открыть модели
@@ -115,11 +160,19 @@ function App() {
       {/* Status Bar */}
       <div className="mt-auto flex items-center gap-2 text-xs text-[var(--text-muted)] pt-2 border-t border-[var(--border-color)]">
         <span>
-          Модель:{" "}
-          {selectedModel ? selectedModel.name : "не выбрана"}
+          {selectedModel ? selectedModel.name : "Модель не выбрана"}
         </span>
         <span>·</span>
-        <span>Язык: {language === "ru" ? "Русский" : language}</span>
+        <span>{LANGUAGE_NAMES[language] ?? language}</span>
+        {isProcessing && (
+          <>
+            <span>·</span>
+            <div className="flex items-center gap-1">
+              <div className="w-2 h-2 border border-[var(--accent)] border-t-transparent rounded-full animate-spin" />
+              <span className="text-[var(--accent)]">Обработка</span>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
