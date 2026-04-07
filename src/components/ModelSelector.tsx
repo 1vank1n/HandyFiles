@@ -31,6 +31,11 @@ function ModelRow({ model }: { model: ModelInfo }) {
           <span className="text-xs text-[var(--text-muted)]">
             {formatSize(model.size_mb)}
           </span>
+          {model.engine === "giga_am" && (
+            <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-emerald-500/15 text-emerald-400">
+              RU
+            </span>
+          )}
         </div>
         <p className="text-xs text-[var(--text-muted)] truncate">
           {model.description}

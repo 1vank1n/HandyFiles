@@ -8,10 +8,10 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter, Manager};
 
-/// Available whisper model definitions.
-/// URLs point to Hugging Face ggml model files.
+/// Available model definitions.
 pub fn get_model_registry() -> Vec<ModelDef> {
     vec![
+        // ── Whisper models (multilingual) ────────────────────
         ModelDef {
             id: "whisper-tiny".into(),
             name: "Whisper Tiny".into(),
@@ -20,6 +20,7 @@ pub fn get_model_registry() -> Vec<ModelDef> {
             url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin".into(),
             size_mb: 75,
             engine: EngineType::Whisper,
+            is_directory: false,
         },
         ModelDef {
             id: "whisper-base".into(),
@@ -29,6 +30,7 @@ pub fn get_model_registry() -> Vec<ModelDef> {
             url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin".into(),
             size_mb: 142,
             engine: EngineType::Whisper,
+            is_directory: false,
         },
         ModelDef {
             id: "whisper-small".into(),
@@ -38,6 +40,7 @@ pub fn get_model_registry() -> Vec<ModelDef> {
             url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin".into(),
             size_mb: 466,
             engine: EngineType::Whisper,
+            is_directory: false,
         },
         ModelDef {
             id: "whisper-medium".into(),
@@ -47,6 +50,7 @@ pub fn get_model_registry() -> Vec<ModelDef> {
             url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin".into(),
             size_mb: 1500,
             engine: EngineType::Whisper,
+            is_directory: false,
         },
         ModelDef {
             id: "whisper-large-v3".into(),
@@ -56,6 +60,7 @@ pub fn get_model_registry() -> Vec<ModelDef> {
             url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin".into(),
             size_mb: 3000,
             engine: EngineType::Whisper,
+            is_directory: false,
         },
         ModelDef {
             id: "whisper-large-v3-turbo".into(),
@@ -65,6 +70,18 @@ pub fn get_model_registry() -> Vec<ModelDef> {
             url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin".into(),
             size_mb: 1600,
             engine: EngineType::Whisper,
+            is_directory: false,
+        },
+        // ── GigaAM v3 (Russian-specialized) ──────────────────
+        ModelDef {
+            id: "gigaam-v3".into(),
+            name: "GigaAM v3".into(),
+            description: "Специализирована для русского языка, INT8 (~151MB)".into(),
+            filename: "giga-am-v3-int8".into(),
+            url: "https://blob.handy.computer/giga-am-v3-int8.tar.gz".into(),
+            size_mb: 151,
+            engine: EngineType::GigaAM,
+            is_directory: true, // extracts to a directory
         },
     ]
 }
@@ -78,12 +95,14 @@ pub struct ModelDef {
     pub url: String,
     pub size_mb: u64,
     pub engine: EngineType,
+    pub is_directory: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum EngineType {
     Whisper,
+    GigaAM,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -166,13 +185,15 @@ impl ModelManager {
             .collect()
     }
 
-    /// Returns the path to the model file if it's downloaded.
+    /// Returns the path to the model if it's downloaded.
+    /// For single-file models: path to the .bin file.
+    /// For directory models (GigaAM): path to the directory.
     pub fn model_path(&self, def: &ModelDef) -> Option<PathBuf> {
         let path = self.models_dir.join(&def.filename);
-        if path.is_file() {
-            Some(path)
+        if def.is_directory {
+            if path.is_dir() { Some(path) } else { None }
         } else {
-            None
+            if path.is_file() { Some(path) } else { None }
         }
     }
 
@@ -183,6 +204,15 @@ impl ModelManager {
             .iter()
             .find(|d| d.id == model_id)
             .and_then(|def| self.model_path(def))
+    }
+
+    /// Returns the engine type for a model ID.
+    pub fn get_engine_type(&self, model_id: &str) -> Option<EngineType> {
+        let registry = get_model_registry();
+        registry
+            .iter()
+            .find(|d| d.id == model_id)
+            .map(|def| def.engine.clone())
     }
 
     /// Download a model with progress reporting.
@@ -340,11 +370,42 @@ impl ModelManager {
         file.flush().map_err(|e| format!("Ошибка записи: {e}"))?;
         drop(file);
 
-        // Rename partial to final
-        fs::rename(&partial_path, &output_path)
-            .map_err(|e| format!("Ошибка переименования: {e}"))?;
+        if def.is_directory {
+            // Extract tar.gz archive to directory
+            log::info!("Extracting {} ...", partial_path.display());
+            let extracting_path = self.models_dir.join(format!("{}.extracting", def.filename));
+            fs::create_dir_all(&extracting_path).ok();
 
-        log::info!("Model {} downloaded to {}", def.id, output_path.display());
+            let tar_file = fs::File::open(&partial_path)
+                .map_err(|e| format!("Ошибка открытия архива: {e}"))?;
+            let gz = flate2::read::GzDecoder::new(tar_file);
+            let mut archive = tar::Archive::new(gz);
+            archive
+                .unpack(&extracting_path)
+                .map_err(|e| format!("Ошибка распаковки: {e}"))?;
+
+            // The tar.gz may extract to a subdirectory — find it
+            let extracted_dir = find_extracted_dir(&extracting_path, &def.filename);
+
+            // Atomic rename to final location
+            if output_path.exists() {
+                fs::remove_dir_all(&output_path).ok();
+            }
+            fs::rename(&extracted_dir, &output_path)
+                .map_err(|e| format!("Ошибка переименования: {e}"))?;
+
+            // Cleanup
+            fs::remove_dir_all(&extracting_path).ok();
+            fs::remove_file(&partial_path).ok();
+
+            log::info!("Model {} extracted to {}", def.id, output_path.display());
+        } else {
+            // Single file — rename partial to final
+            fs::rename(&partial_path, &output_path)
+                .map_err(|e| format!("Ошибка переименования: {e}"))?;
+            log::info!("Model {} downloaded to {}", def.id, output_path.display());
+        }
+
         Ok(())
     }
 
@@ -357,16 +418,48 @@ impl ModelManager {
             .ok_or_else(|| format!("Модель {model_id} не найдена"))?;
 
         let path = self.models_dir.join(&def.filename);
-        if path.is_file() {
+        if def.is_directory {
+            if path.is_dir() {
+                fs::remove_dir_all(&path).map_err(|e| format!("Ошибка удаления: {e}"))?;
+            }
+        } else if path.is_file() {
             fs::remove_file(&path).map_err(|e| format!("Ошибка удаления: {e}"))?;
         }
 
-        // Also remove partial file if exists
+        // Also remove partial/extracting files if exist
         let partial = self.models_dir.join(format!("{}.partial", def.filename));
         if partial.is_file() {
             fs::remove_file(&partial).ok();
         }
+        let extracting = self.models_dir.join(format!("{}.extracting", def.filename));
+        if extracting.is_dir() {
+            fs::remove_dir_all(&extracting).ok();
+        }
 
         Ok(())
     }
+}
+
+/// Find the actual extracted directory inside the extraction target.
+/// tar.gz may extract as `<filename>/` directly or nested.
+fn find_extracted_dir(extracting_path: &Path, expected_name: &str) -> PathBuf {
+    // Check if the expected directory name exists inside
+    let nested = extracting_path.join(expected_name);
+    if nested.is_dir() {
+        return nested;
+    }
+
+    // Otherwise, look for any single subdirectory
+    if let Ok(entries) = fs::read_dir(extracting_path) {
+        let dirs: Vec<_> = entries
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().is_dir())
+            .collect();
+        if dirs.len() == 1 {
+            return dirs[0].path();
+        }
+    }
+
+    // Fallback: use the extracting dir itself
+    extracting_path.to_path_buf()
 }

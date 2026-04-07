@@ -173,11 +173,16 @@ pub async fn transcribe_file(
 
     let language = state.selected_language.lock().unwrap().clone();
 
-    // Get model path
+    // Get model path and engine type
     let model_path = state
         .models
         .get_model_path_by_id(&model_id)
         .ok_or("Модель не скачана")?;
+
+    let engine_type = state
+        .models
+        .get_engine_type(&model_id)
+        .ok_or("Тип движка не найден")?;
 
     let input_path = Path::new(&path);
 
@@ -195,16 +200,8 @@ pub async fn transcribe_file(
     );
 
     // Step 1: Convert to WAV if needed
-    let ext = input_path
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|e| e.to_lowercase())
-        .unwrap_or_default();
-
-    let wav_path = if ext == "wav" {
-        // Check if already 16kHz mono - for simplicity, always convert
-        input_path.to_path_buf()
-    } else {
+    // Always convert through FFmpeg to ensure 16kHz mono WAV
+    let wav_path = {
         // Need FFmpeg
         if !state.ffmpeg.is_available() {
             let err = "FFmpeg не найден".to_string();
@@ -256,15 +253,14 @@ pub async fn transcribe_file(
     );
 
     // Step 2: Read WAV as f32 samples
-    let audio = read_wav_samples(&wav_path)?;
+    let audio = transcribe_rs::audio::read_wav_samples(&wav_path)
+        .map_err(|e| format!("Ошибка чтения WAV: {e}"))?;
 
-    // Clean up temp WAV if we created one
-    if wav_path != input_path {
-        std::fs::remove_file(&wav_path).ok();
-    }
+    // Clean up temp WAV
+    std::fs::remove_file(&wav_path).ok();
 
     // Step 3: Load model if needed
-    state.transcription.load_model(&model_id, &model_path)?;
+    state.transcription.load_model(&model_id, &model_path, &engine_type)?;
 
     // Step 4: Transcribe
     log::info!("Transcribing {} with model {}", filename, model_id);
@@ -317,45 +313,3 @@ fn update_file_status(
     }
 }
 
-/// Read a WAV file and return f32 samples (16kHz mono).
-fn read_wav_samples(path: &Path) -> Result<Vec<f32>, String> {
-    let reader =
-        hound::WavReader::open(path).map_err(|e| format!("Ошибка чтения WAV: {e}"))?;
-
-    let spec = reader.spec();
-    log::info!(
-        "WAV: {} Hz, {} ch, {:?}",
-        spec.sample_rate,
-        spec.channels,
-        spec.sample_format
-    );
-
-    let samples: Vec<f32> = match spec.sample_format {
-        hound::SampleFormat::Int => reader
-            .into_samples::<i16>()
-            .filter_map(|s| s.ok())
-            .map(|s| s as f32 / i16::MAX as f32)
-            .collect(),
-        hound::SampleFormat::Float => reader
-            .into_samples::<f32>()
-            .filter_map(|s| s.ok())
-            .collect(),
-    };
-
-    // If stereo, convert to mono by averaging channels
-    if spec.channels == 2 {
-        let mono: Vec<f32> = samples
-            .chunks(2)
-            .map(|chunk| {
-                if chunk.len() == 2 {
-                    (chunk[0] + chunk[1]) / 2.0
-                } else {
-                    chunk[0]
-                }
-            })
-            .collect();
-        Ok(mono)
-    } else {
-        Ok(samples)
-    }
-}

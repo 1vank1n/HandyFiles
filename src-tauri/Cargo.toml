@@ -38,8 +38,8 @@ sha2 = "0.10"
 # Audio
 hound = "3.5"
 
-# Transcription
-whisper-rs = "0.16"
+# Transcription (same crate as Handy uses)
+transcribe-rs = { version = "0.3", features = ["whisper-cpp", "whisper-metal", "onnx"] }
 
 # Archive extraction (for GigaAM models)
 tar = "0.4"

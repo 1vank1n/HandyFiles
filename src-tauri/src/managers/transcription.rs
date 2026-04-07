@@ -1,16 +1,47 @@
 use std::path::Path;
 use std::sync::Mutex;
 
-use std::ffi::c_int;
-use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
+use transcribe_rs::{SpeechModel, TranscribeOptions, TranscriptionResult as TrResult};
+
+use crate::managers::model::EngineType;
 
 pub struct TranscriptionManager {
-    context: Mutex<Option<LoadedModel>>,
+    engine: Mutex<Option<LoadedEngine>>,
 }
 
-struct LoadedModel {
-    model_id: String,
-    ctx: WhisperContext,
+enum LoadedEngine {
+    Whisper {
+        model_id: String,
+        engine: transcribe_rs::whisper_cpp::WhisperEngine,
+    },
+    GigaAM {
+        model_id: String,
+        engine: transcribe_rs::onnx::gigaam::GigaAMModel,
+    },
+}
+
+impl LoadedEngine {
+    fn model_id(&self) -> &str {
+        match self {
+            LoadedEngine::Whisper { model_id, .. } => model_id,
+            LoadedEngine::GigaAM { model_id, .. } => model_id,
+        }
+    }
+
+    fn transcribe(
+        &mut self,
+        audio: &[f32],
+        options: &TranscribeOptions,
+    ) -> Result<TrResult, String> {
+        match self {
+            LoadedEngine::Whisper { engine, .. } => engine
+                .transcribe(audio, options)
+                .map_err(|e| format!("Ошибка Whisper: {e}")),
+            LoadedEngine::GigaAM { engine, .. } => engine
+                .transcribe(audio, options)
+                .map_err(|e| format!("Ошибка GigaAM: {e}")),
+        }
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -22,44 +53,60 @@ pub struct TranscriptionResult {
 impl TranscriptionManager {
     pub fn new() -> Self {
         Self {
-            context: Mutex::new(None),
+            engine: Mutex::new(None),
         }
     }
 
-    /// Load a whisper model from disk. Unloads previous model if different.
-    pub fn load_model(&self, model_id: &str, model_path: &Path) -> Result<(), String> {
-        let mut ctx_guard = self.context.lock().unwrap();
+    /// Load a model. Unloads previous model if different.
+    pub fn load_model(
+        &self,
+        model_id: &str,
+        model_path: &Path,
+        engine_type: &EngineType,
+    ) -> Result<(), String> {
+        let mut guard = self.engine.lock().unwrap();
 
         // Already loaded?
-        if let Some(loaded) = ctx_guard.as_ref() {
-            if loaded.model_id == model_id {
+        if let Some(loaded) = guard.as_ref() {
+            if loaded.model_id() == model_id {
                 return Ok(());
             }
         }
 
         log::info!("Loading model {} from {}", model_id, model_path.display());
 
-        let params = WhisperContextParameters::default();
-        let ctx = WhisperContext::new_with_params(
-            model_path.to_str().ok_or("Invalid model path")?,
-            params,
-        )
-        .map_err(|e| format!("Ошибка загрузки модели: {e}"))?;
+        let loaded = match engine_type {
+            EngineType::Whisper => {
+                let engine = transcribe_rs::whisper_cpp::WhisperEngine::load(model_path)
+                    .map_err(|e| format!("Ошибка загрузки Whisper: {e}"))?;
+                LoadedEngine::Whisper {
+                    model_id: model_id.to_string(),
+                    engine,
+                }
+            }
+            EngineType::GigaAM => {
+                let engine = transcribe_rs::onnx::gigaam::GigaAMModel::load(
+                    model_path,
+                    &transcribe_rs::onnx::Quantization::Int8,
+                )
+                .map_err(|e| format!("Ошибка загрузки GigaAM: {e}"))?;
+                LoadedEngine::GigaAM {
+                    model_id: model_id.to_string(),
+                    engine,
+                }
+            }
+        };
 
-        *ctx_guard = Some(LoadedModel {
-            model_id: model_id.to_string(),
-            ctx,
-        });
-
+        *guard = Some(loaded);
         log::info!("Model {} loaded successfully", model_id);
         Ok(())
     }
 
     /// Unload the current model to free memory.
     pub fn unload_model(&self) {
-        let mut ctx_guard = self.context.lock().unwrap();
-        if let Some(loaded) = ctx_guard.take() {
-            log::info!("Unloaded model {}", loaded.model_id);
+        let mut guard = self.engine.lock().unwrap();
+        if let Some(loaded) = guard.take() {
+            log::info!("Unloaded model {}", loaded.model_id());
         }
     }
 
@@ -72,60 +119,34 @@ impl TranscriptionManager {
     ) -> Result<TranscriptionResult, String> {
         let start = std::time::Instant::now();
 
-        let ctx_guard = self.context.lock().unwrap();
-        let loaded = ctx_guard
-            .as_ref()
-            .ok_or("Модель не загружена")?;
+        let mut guard = self.engine.lock().unwrap();
+        let loaded = guard.as_mut().ok_or("Модель не загружена")?;
 
-        let mut state = loaded
-            .ctx
-            .create_state()
-            .map_err(|e| format!("Ошибка создания состояния: {e}"))?;
+        let options = TranscribeOptions {
+            language: Some(language.to_string()),
+            translate,
+            ..Default::default()
+        };
 
-        let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-        params.set_language(Some(language));
-        params.set_translate(translate);
-        params.set_print_special(false);
-        params.set_print_progress(false);
-        params.set_print_realtime(false);
-        params.set_print_timestamps(false);
-        params.set_suppress_blank(true);
-        params.set_no_timestamps(true);
-
-        // Run inference
-        state
-            .full(params, audio)
-            .map_err(|e| format!("Ошибка транскрибации: {e}"))?;
-
-        // Collect segments
-        let num_segments = state.full_n_segments();
-        let mut text = String::new();
-
-        for i in 0..num_segments as c_int {
-            if let Some(segment) = state.get_segment(i) {
-                if let Ok(segment_text) = segment.to_str() {
-                    text.push_str(segment_text);
-                }
-            }
-        }
+        let result = loaded.transcribe(audio, &options)?;
 
         let duration_ms = start.elapsed().as_millis() as u64;
 
         Ok(TranscriptionResult {
-            text: text.trim().to_string(),
+            text: result.text.trim().to_string(),
             duration_ms,
         })
     }
 
     pub fn is_loaded(&self) -> bool {
-        self.context.lock().unwrap().is_some()
+        self.engine.lock().unwrap().is_some()
     }
 
     pub fn loaded_model_id(&self) -> Option<String> {
-        self.context
+        self.engine
             .lock()
             .unwrap()
             .as_ref()
-            .map(|l| l.model_id.clone())
+            .map(|l| l.model_id().to_string())
     }
 }
