@@ -57,16 +57,26 @@ pub fn get_language(state: State<AppState>) -> String {
 // ── FFmpeg commands ─────────────────────────────────────────────
 
 #[derive(serde::Serialize)]
-pub struct FfmpegStatus {
-    pub available: bool,
-    pub path: Option<String>,
+pub struct DecoderStatus {
+    pub native_formats: Vec<String>,
+    pub ffmpeg_available: bool,
+    pub ffmpeg_path: Option<String>,
+    pub ffmpeg_formats: Vec<String>,
 }
 
 #[tauri::command]
-pub fn get_ffmpeg_status(state: State<AppState>) -> FfmpegStatus {
-    FfmpegStatus {
-        available: state.ffmpeg.is_available(),
-        path: state.ffmpeg.binary_path().map(|p| p.display().to_string()),
+pub fn get_decoder_status(state: State<AppState>) -> DecoderStatus {
+    DecoderStatus {
+        native_formats: crate::managers::audio::NATIVE_EXTENSIONS
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
+        ffmpeg_available: state.ffmpeg.is_available(),
+        ffmpeg_path: state.ffmpeg.binary_path().map(|p| p.display().to_string()),
+        ffmpeg_formats: crate::managers::audio::FFMPEG_EXTENSIONS
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
     }
 }
 
@@ -186,78 +196,37 @@ pub async fn transcribe_file(
 
     let input_path = Path::new(&path);
 
-    // Update status → converting
+    // Update status → converting/decoding
     update_file_status(&state, &file_id, FileStatus::Converting, None, None, None);
-    let _ = app_handle.emit(
-        "transcription-update",
-        TranscriptionEvent {
-            file_id: file_id.clone(),
-            status: FileStatus::Converting,
-            text: None,
-            duration_ms: None,
-            error: None,
-        },
-    );
+    emit_update(&app_handle, &file_id, FileStatus::Converting, None, None, None);
 
-    // Step 1: Convert to WAV if needed
-    // Always convert through FFmpeg to ensure 16kHz mono WAV
-    let wav_path = {
-        // Need FFmpeg
-        if !state.ffmpeg.is_available() {
-            let err = "FFmpeg не найден".to_string();
-            update_file_status(&state, &file_id, FileStatus::Error, None, None, Some(err.clone()));
-            let _ = app_handle.emit(
-                "transcription-update",
-                TranscriptionEvent {
-                    file_id,
-                    status: FileStatus::Error,
-                    text: None,
-                    duration_ms: None,
-                    error: Some(err),
-                },
-            );
-            return Err("FFmpeg не найден".into());
-        }
+    // Step 1: Decode audio to f32 samples at 16kHz mono
+    let ext = input_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase())
+        .unwrap_or_default();
 
-        log::info!("Converting {} via FFmpeg", filename);
-        match state.ffmpeg.extract_audio(input_path) {
-            Ok(p) => p,
+    let audio = if crate::managers::audio::is_native_supported(&ext) {
+        // Native Rust decoder (Symphonia + Rubato) — no external dependencies
+        log::info!("Decoding {} natively (Symphonia)", filename);
+        match crate::managers::audio::decode_to_samples(input_path) {
+            Ok(samples) => samples,
             Err(e) => {
-                update_file_status(&state, &file_id, FileStatus::Error, None, None, Some(e.clone()));
-                let _ = app_handle.emit(
-                    "transcription-update",
-                    TranscriptionEvent {
-                        file_id,
-                        status: FileStatus::Error,
-                        text: None,
-                        duration_ms: None,
-                        error: Some(e.clone()),
-                    },
-                );
-                return Err(e);
+                // Try FFmpeg fallback
+                log::warn!("Native decode failed, trying FFmpeg: {e}");
+                ffmpeg_fallback(&state, input_path, &filename)?
             }
         }
+    } else {
+        // FFmpeg fallback for AVI, MOV, WMA etc.
+        log::info!("Using FFmpeg for {} (unsupported by native decoder)", ext);
+        ffmpeg_fallback(&state, input_path, &filename)?
     };
 
     // Update status → transcribing
     update_file_status(&state, &file_id, FileStatus::Transcribing, None, None, None);
-    let _ = app_handle.emit(
-        "transcription-update",
-        TranscriptionEvent {
-            file_id: file_id.clone(),
-            status: FileStatus::Transcribing,
-            text: None,
-            duration_ms: None,
-            error: None,
-        },
-    );
-
-    // Step 2: Read WAV as f32 samples
-    let audio = transcribe_rs::audio::read_wav_samples(&wav_path)
-        .map_err(|e| format!("Ошибка чтения WAV: {e}"))?;
-
-    // Clean up temp WAV
-    std::fs::remove_file(&wav_path).ok();
+    emit_update(&app_handle, &file_id, FileStatus::Transcribing, None, None, None);
 
     // Step 3: Load model if needed
     state.transcription.load_model(&model_id, &model_path, &engine_type)?;
@@ -311,5 +280,47 @@ fn update_file_status(
             }
         }
     }
+}
+
+fn emit_update(
+    app_handle: &AppHandle,
+    file_id: &str,
+    status: FileStatus,
+    text: Option<String>,
+    duration_ms: Option<u64>,
+    error: Option<String>,
+) {
+    let _ = app_handle.emit(
+        "transcription-update",
+        TranscriptionEvent {
+            file_id: file_id.to_string(),
+            status,
+            text,
+            duration_ms,
+            error,
+        },
+    );
+}
+
+/// FFmpeg fallback for formats not supported by Symphonia.
+fn ffmpeg_fallback(
+    state: &State<AppState>,
+    input_path: &Path,
+    filename: &str,
+) -> Result<Vec<f32>, String> {
+    if !state.ffmpeg.is_available() {
+        return Err(format!(
+            "Формат {} не поддерживается нативно, а FFmpeg не найден. \
+             Установите: brew install ffmpeg",
+            input_path.extension().and_then(|e| e.to_str()).unwrap_or("?")
+        ));
+    }
+
+    log::info!("Converting {} via FFmpeg (fallback)", filename);
+    let wav_path = state.ffmpeg.extract_audio(input_path)?;
+    let audio = transcribe_rs::audio::read_wav_samples(&wav_path)
+        .map_err(|e| format!("Ошибка чтения WAV: {e}"))?;
+    std::fs::remove_file(&wav_path).ok();
+    Ok(audio)
 }
 

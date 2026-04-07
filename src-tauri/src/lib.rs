@@ -41,8 +41,8 @@ pub fn run() {
             commands::get_selected_model,
             commands::set_language,
             commands::get_language,
-            // FFmpeg
-            commands::get_ffmpeg_status,
+            // Decoder
+            commands::get_decoder_status,
             // File queue
             commands::queue_files,
             commands::get_queue,

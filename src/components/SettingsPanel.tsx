@@ -2,9 +2,11 @@ import { useModelStore } from "../stores/modelStore";
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
 
-interface FfmpegStatus {
-  available: boolean;
-  path: string | null;
+interface DecoderStatus {
+  native_formats: string[];
+  ffmpeg_available: boolean;
+  ffmpeg_path: string | null;
+  ffmpeg_formats: string[];
 }
 
 const LANGUAGES = [
@@ -24,10 +26,10 @@ const LANGUAGES = [
 
 export default function SettingsPanel({ onClose }: { onClose: () => void }) {
   const { language, setLanguage } = useModelStore();
-  const [ffmpegStatus, setFfmpegStatus] = useState<FfmpegStatus | null>(null);
+  const [decoder, setDecoder] = useState<DecoderStatus | null>(null);
 
   useEffect(() => {
-    invoke<FfmpegStatus>("get_ffmpeg_status").then(setFfmpegStatus);
+    invoke<DecoderStatus>("get_decoder_status").then(setDecoder);
   }, []);
 
   return (
@@ -64,41 +66,47 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
         </select>
       </div>
 
-      {/* FFmpeg Status */}
-      <div className="flex flex-col gap-1.5">
-        <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">
-          FFmpeg
-        </label>
-        {ffmpegStatus ? (
-          ffmpegStatus.available ? (
-            <div className="flex items-center gap-2 rounded-lg bg-[var(--bg-tertiary)] px-3 py-2">
+      {/* Decoder Status */}
+      {decoder && (
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">
+            Декодер аудио
+          </label>
+          <div className="flex flex-col gap-2 rounded-lg bg-[var(--bg-tertiary)] px-3 py-2.5">
+            {/* Native decoder */}
+            <div className="flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-[var(--success)]" />
               <span className="text-xs text-[var(--text-secondary)]">
-                {ffmpegStatus.path}
+                Встроенный (Symphonia)
               </span>
             </div>
-          ) : (
-            <div className="flex flex-col gap-2 rounded-lg bg-[var(--error)]/10 border border-[var(--error)]/30 px-3 py-2.5">
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-[var(--error)]" />
-                <span className="text-xs text-[var(--error)]">
-                  FFmpeg не найден
+            <p className="text-xs text-[var(--text-muted)] pl-4">
+              {decoder.native_formats.join(", ")}
+            </p>
+
+            {/* FFmpeg fallback */}
+            <div className="flex items-center gap-2 mt-1">
+              <div className={`w-2 h-2 rounded-full ${
+                decoder.ffmpeg_available ? "bg-[var(--success)]" : "bg-[var(--text-muted)]"
+              }`} />
+              <span className="text-xs text-[var(--text-secondary)]">
+                FFmpeg (доп. форматы)
+              </span>
+              {!decoder.ffmpeg_available && (
+                <span className="text-[10px] text-[var(--text-muted)]">
+                  — не установлен
                 </span>
-              </div>
-              <p className="text-xs text-[var(--text-muted)]">
-                Установите через терминал:
-              </p>
-              <code className="text-xs bg-[var(--bg-primary)] rounded px-2 py-1 text-[var(--text-secondary)] select-all">
-                brew install ffmpeg
-              </code>
+              )}
             </div>
-          )
-        ) : (
-          <div className="rounded-lg bg-[var(--bg-tertiary)] px-3 py-2 text-xs text-[var(--text-muted)]">
-            Проверка...
+            <p className="text-xs text-[var(--text-muted)] pl-4">
+              {decoder.ffmpeg_available
+                ? `${decoder.ffmpeg_formats.join(", ")} · ${decoder.ffmpeg_path}`
+                : `${decoder.ffmpeg_formats.join(", ")} · brew install ffmpeg`
+              }
+            </p>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

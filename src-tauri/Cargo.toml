@@ -35,7 +35,9 @@ reqwest = { version = "0.12", features = ["json", "stream"] }
 futures-util = "0.3"
 sha2 = "0.10"
 
-# Audio
+# Audio decoding (pure Rust — no system dependencies)
+symphonia = { version = "0.5", features = ["isomp4", "aac", "mp3", "pcm", "flac", "ogg", "vorbis", "wav"] }
+rubato = "0.15"
 hound = "3.5"
 
 # Transcription (same crate as Handy uses)
