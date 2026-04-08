@@ -6,10 +6,21 @@ export interface QueuedFile {
   id: string;
   path: string;
   filename: string;
+  is_video: boolean;
   status: "queued" | "converting" | "transcribing" | "completed" | "error";
   result?: string;
   duration_ms?: number;
   error?: string;
+  progress?: number;
+  stage?: string;
+  processingStartedAt?: number;
+  audioDurationSec?: number;
+}
+
+export interface LogEntry {
+  fileId: string;
+  message: string;
+  timestamp: number;
 }
 
 interface TranscriptionUpdate {
@@ -20,23 +31,42 @@ interface TranscriptionUpdate {
   error?: string;
 }
 
+interface ProgressUpdate {
+  file_id: string;
+  stage: string;
+  progress: number;
+  audio_duration_sec?: number;
+}
+
+interface LogUpdate {
+  file_id: string;
+  message: string;
+}
+
 interface TranscriptionStore {
   files: QueuedFile[];
   selectedFileId: string | null;
+  logs: LogEntry[];
+  /** Seconds of audio per second of processing (measured from last completed transcription). */
+  lastSpeedRatio: number | null;
 
   addFiles: (paths: string[]) => Promise<void>;
   transcribeFile: (fileId: string) => Promise<void>;
   retranscribeFile: (fileId: string) => Promise<void>;
+  cancelTranscription: (fileId: string) => Promise<void>;
   transcribeAll: () => Promise<void>;
   selectFile: (fileId: string) => void;
   clearCompleted: () => Promise<void>;
   removeFile: (fileId: string) => void;
+  clearLogs: () => void;
   initListeners: () => Promise<() => void>;
 }
 
 export const useTranscriptionStore = create<TranscriptionStore>((set, get) => ({
   files: [],
   selectedFileId: null,
+  logs: [],
+  lastSpeedRatio: null,
 
   addFiles: async (paths: string[]) => {
     try {
@@ -45,7 +75,6 @@ export const useTranscriptionStore = create<TranscriptionStore>((set, get) => ({
         files: [...state.files, ...newFiles],
       }));
 
-      // Auto-select first added file
       if (newFiles.length > 0 && !get().selectedFileId) {
         set({ selectedFileId: newFiles[0].id });
       }
@@ -62,18 +91,31 @@ export const useTranscriptionStore = create<TranscriptionStore>((set, get) => ({
     }
   },
 
-  retranscribeFile: async (fileId: string) => {
+  cancelTranscription: async (fileId: string) => {
     try {
-      await invoke("reset_file_for_retranscribe", { fileId });
-      // Update local state
+      await invoke("cancel_transcription", { fileId });
       set((state) => ({
         files: state.files.map((f) =>
           f.id === fileId
-            ? { ...f, status: "queued" as const, result: undefined, duration_ms: undefined, error: undefined }
+            ? { ...f, status: "error" as const, error: "Отменено", progress: undefined, stage: undefined }
             : f,
         ),
       }));
-      // Start transcription
+    } catch (e) {
+      console.error("Cancel failed:", e);
+    }
+  },
+
+  retranscribeFile: async (fileId: string) => {
+    try {
+      await invoke("reset_file_for_retranscribe", { fileId });
+      set((state) => ({
+        files: state.files.map((f) =>
+          f.id === fileId
+            ? { ...f, status: "queued" as const, result: undefined, duration_ms: undefined, error: undefined, progress: undefined, stage: undefined }
+            : f,
+        ),
+      }));
       await invoke("transcribe_file", { fileId });
     } catch (e) {
       console.error("Re-transcription failed:", e);
@@ -117,32 +159,85 @@ export const useTranscriptionStore = create<TranscriptionStore>((set, get) => ({
     }));
   },
 
+  clearLogs: () => set({ logs: [] }),
+
   initListeners: async () => {
-    const unlisten = await listen<TranscriptionUpdate>(
+    const unlistenUpdate = await listen<TranscriptionUpdate>(
       "transcription-update",
       (event) => {
         const { file_id, status, text, duration_ms, error } = event.payload;
+        const isStarting = status === "converting" || status === "transcribing";
         set((state) => ({
-          files: state.files.map((f) =>
-            f.id === file_id
-              ? {
-                  ...f,
-                  status: status as QueuedFile["status"],
-                  result: text ?? f.result,
-                  duration_ms: duration_ms ?? f.duration_ms,
-                  error: error ?? f.error,
-                }
-              : f,
-          ),
+          files: state.files.map((f) => {
+            if (f.id !== file_id) return f;
+            return {
+              ...f,
+              status: status as QueuedFile["status"],
+              result: text ?? f.result,
+              duration_ms: duration_ms ?? f.duration_ms,
+              error: error ?? f.error,
+              processingStartedAt: isStarting && !f.processingStartedAt
+                ? Date.now()
+                : status === "completed" || status === "error"
+                  ? undefined
+                  : f.processingStartedAt,
+            };
+          }),
         }));
 
-        // Auto-select completed file
         if (status === "completed") {
+          // Compute speed ratio from this transcription
+          const file = get().files.find((f) => f.id === file_id);
+          if (file?.processingStartedAt && file.audioDurationSec) {
+            const processingTimeSec = (Date.now() - file.processingStartedAt) / 1000;
+            if (processingTimeSec > 0) {
+              set({ lastSpeedRatio: file.audioDurationSec / processingTimeSec });
+            }
+          }
           set({ selectedFileId: file_id });
         }
       },
     );
 
-    return unlisten;
+    const unlistenProgress = await listen<ProgressUpdate>(
+      "transcription-progress",
+      (event) => {
+        const { file_id, stage, progress, audio_duration_sec } = event.payload;
+        set((state) => ({
+          files: state.files.map((f) =>
+            f.id === file_id
+              ? {
+                  ...f,
+                  progress,
+                  stage,
+                  audioDurationSec: audio_duration_sec ?? f.audioDurationSec,
+                }
+              : f,
+          ),
+        }));
+      },
+    );
+
+    const unlistenLog = await listen<LogUpdate>(
+      "transcription-log",
+      (event) => {
+        set((state) => ({
+          logs: [
+            ...state.logs,
+            {
+              fileId: event.payload.file_id,
+              message: event.payload.message,
+              timestamp: Date.now(),
+            },
+          ].slice(-200),
+        }));
+      },
+    );
+
+    return () => {
+      unlistenUpdate();
+      unlistenProgress();
+      unlistenLog();
+    };
   },
 }));

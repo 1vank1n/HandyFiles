@@ -115,10 +115,14 @@ pub fn queue_files(paths: Vec<String>, state: State<AppState>) -> Result<Vec<Que
             .unwrap_or("unknown")
             .to_string();
 
+        let video_extensions = ["mp4", "mkv", "mov", "avi", "webm"];
+        let is_video = video_extensions.contains(&ext.as_str());
+
         let file = QueuedFile {
             id: uuid::Uuid::new_v4().to_string(),
             path: path.clone(),
             filename,
+            is_video,
             status: FileStatus::Queued,
             result: None,
             duration_ms: None,
@@ -160,6 +164,46 @@ pub fn reset_file_for_retranscribe(file_id: String, state: State<AppState>) -> R
     Ok(())
 }
 
+#[tauri::command]
+pub fn cancel_transcription(file_id: String, state: State<AppState>) {
+    state.cancelled.lock().unwrap().insert(file_id.clone());
+    update_file_status(&state, &file_id, FileStatus::Error, None, None, Some("Отменено".into()));
+}
+
+/// Export audio track from a video file as WAV.
+#[tauri::command]
+pub async fn export_audio(
+    file_id: String,
+    output_path: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let source_path = {
+        let queue = state.queued_files.lock().unwrap();
+        let file = queue.iter().find(|f| f.id == file_id).ok_or("Файл не найден")?;
+        file.path.clone()
+    };
+
+    let samples = crate::managers::audio::decode_to_samples(Path::new(&source_path))?;
+
+    // Write WAV 16kHz mono
+    let spec = hound::WavSpec {
+        channels: 1,
+        sample_rate: 16000,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+    let mut writer = hound::WavWriter::create(&output_path, spec)
+        .map_err(|e| format!("Ошибка создания WAV: {e}"))?;
+    for &s in &samples {
+        let sample = (s * i16::MAX as f32).clamp(i16::MIN as f32, i16::MAX as f32) as i16;
+        writer.write_sample(sample).map_err(|e| format!("Ошибка записи: {e}"))?;
+    }
+    writer.finalize().map_err(|e| format!("Ошибка финализации: {e}"))?;
+
+    log::info!("Audio exported to {}", output_path);
+    Ok(())
+}
+
 // ── Transcription commands ──────────────────────────────────────
 
 #[derive(Clone, serde::Serialize)]
@@ -172,6 +216,21 @@ struct TranscriptionEvent {
     duration_ms: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+}
+
+#[derive(Clone, serde::Serialize)]
+struct ProgressEvent {
+    file_id: String,
+    stage: String,
+    progress: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    audio_duration_sec: Option<f64>,
+}
+
+#[derive(Clone, serde::Serialize)]
+struct LogEvent {
+    file_id: String,
+    message: String,
 }
 
 #[tauri::command]
@@ -219,6 +278,32 @@ pub async fn transcribe_file(
     update_file_status(&state, &file_id, FileStatus::Converting, None, None, None);
     emit_update(&app_handle, &file_id, FileStatus::Converting, None, None, None);
 
+    // Progress helper
+    let ah = app_handle.clone();
+    let fid = file_id.clone();
+    let emit_progress = move |stage: &str, pct: f64| {
+        let _ = ah.emit("transcription-progress", ProgressEvent {
+            file_id: fid.clone(),
+            stage: stage.to_string(),
+            progress: pct,
+            audio_duration_sec: None,
+        });
+    };
+
+    let ah2 = app_handle.clone();
+    let fid2 = file_id.clone();
+    let emit_log = move |msg: String| {
+        let _ = ah2.emit("transcription-log", LogEvent {
+            file_id: fid2.clone(),
+            message: msg,
+        });
+    };
+
+    // Cancellation check helper
+    let is_cancelled = || -> bool {
+        state.cancelled.lock().unwrap().contains(&file_id)
+    };
+
     // Step 1: Decode audio to f32 samples at 16kHz mono
     let ext = input_path
         .extension()
@@ -226,33 +311,77 @@ pub async fn transcribe_file(
         .map(|e| e.to_lowercase())
         .unwrap_or_default();
 
+    emit_log(format!("Декодирование: {}", filename));
+
+    let ep = emit_progress.clone();
     let audio = if crate::managers::audio::is_native_supported(&ext) {
-        // Native Rust decoder (Symphonia + Rubato) — no external dependencies
         log::info!("Decoding {} natively (Symphonia)", filename);
-        match crate::managers::audio::decode_to_samples(input_path) {
-            Ok(samples) => samples,
+        emit_log(format!("Декодер: Symphonia ({})", ext));
+        let progress_fn: crate::managers::audio::ProgressFn = Box::new(move |stage, pct| {
+            ep(stage, pct);
+        });
+        match crate::managers::audio::decode_to_samples_with_progress(input_path, Some(progress_fn)) {
+            Ok(samples) => {
+                emit_log(format!("Декодировано: {:.1}с аудио", samples.len() as f64 / 16000.0));
+                samples
+            }
             Err(e) => {
-                // Try FFmpeg fallback
+                emit_log(format!("Symphonia ошибка: {}, пробую FFmpeg", e));
                 log::warn!("Native decode failed, trying FFmpeg: {e}");
                 ffmpeg_fallback(&state, input_path, &filename)?
             }
         }
     } else {
-        // FFmpeg fallback for AVI, MOV, WMA etc.
         log::info!("Using FFmpeg for {} (unsupported by native decoder)", ext);
+        emit_log(format!("Декодер: FFmpeg ({})", ext));
         ffmpeg_fallback(&state, input_path, &filename)?
     };
 
-    // Update status → transcribing
+    // Check cancellation after decode
+    if is_cancelled() {
+        emit_log("Отменено".to_string());
+        emit_update(&app_handle, &file_id, FileStatus::Error, None, None, Some("Отменено".to_string()));
+        state.cancelled.lock().unwrap().remove(&file_id);
+        return Ok(());
+    }
+
+    // Update status → transcribing (with audio duration for ETA)
+    let audio_duration_sec = audio.len() as f64 / 16000.0;
     update_file_status(&state, &file_id, FileStatus::Transcribing, None, None, None);
     emit_update(&app_handle, &file_id, FileStatus::Transcribing, None, None, None);
+    let _ = app_handle.emit("transcription-progress", ProgressEvent {
+        file_id: file_id.clone(),
+        stage: "transcribing".to_string(),
+        progress: 0.0,
+        audio_duration_sec: Some(audio_duration_sec),
+    });
 
     // Step 3: Load model if needed
+    emit_log(format!("Загрузка модели: {}", model_id));
     state.transcription.load_model(&model_id, &model_path, &engine_type)?;
+    emit_log("Модель загружена".to_string());
+
+    // Check cancellation after model load
+    if is_cancelled() {
+        emit_log("Отменено".to_string());
+        emit_update(&app_handle, &file_id, FileStatus::Error, None, None, Some("Отменено".to_string()));
+        state.cancelled.lock().unwrap().remove(&file_id);
+        return Ok(());
+    }
 
     // Step 4: Transcribe
-    log::info!("Transcribing {} with model {}", filename, model_id);
+    emit_log(format!("Транскрибация {:.1}с аудио...", audio.len() as f64 / 16000.0));
+    log::info!("Transcribing {} with model {} ({:.1}s audio)", filename, model_id, audio.len() as f64 / 16000.0);
     let result = state.transcription.transcribe(&audio, &language, false)?;
+    emit_progress("transcribing", 1.0);
+
+    // Check cancellation after transcription
+    if is_cancelled() {
+        emit_log("Отменено".to_string());
+        emit_update(&app_handle, &file_id, FileStatus::Error, None, None, Some("Отменено".to_string()));
+        state.cancelled.lock().unwrap().remove(&file_id);
+        return Ok(());
+    }
 
     // Update status → completed
     update_file_status(

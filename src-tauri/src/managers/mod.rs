@@ -3,6 +3,7 @@ pub mod ffmpeg;
 pub mod model;
 pub mod transcription;
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -43,6 +44,7 @@ pub struct AppState {
     pub queued_files: Mutex<Vec<QueuedFile>>,
     pub selected_model: Mutex<Option<String>>,
     pub selected_language: Mutex<String>,
+    pub cancelled: Mutex<HashSet<String>>,
     prefs_path: PathBuf,
 }
 
@@ -77,6 +79,7 @@ impl AppState {
             queued_files: Mutex::new(Vec::new()),
             selected_model: Mutex::new(selected_model),
             selected_language: Mutex::new(language),
+            cancelled: Mutex::new(HashSet::new()),
             prefs_path,
         }
     }
@@ -96,6 +99,7 @@ pub struct QueuedFile {
     pub id: String,
     pub path: String,
     pub filename: String,
+    pub is_video: bool,
     pub status: FileStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<String>,

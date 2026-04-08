@@ -37,9 +37,54 @@ impl LoadedEngine {
             LoadedEngine::Whisper { engine, .. } => engine
                 .transcribe(audio, options)
                 .map_err(|e| format!("Ошибка Whisper: {e}")),
-            LoadedEngine::GigaAM { engine, .. } => engine
-                .transcribe(audio, options)
-                .map_err(|e| format!("Ошибка GigaAM: {e}")),
+            LoadedEngine::GigaAM { engine, .. } => {
+                // GigaAM has a max input length (~30s). Chunk long audio.
+                let sample_rate = 16000;
+                let chunk_seconds = 25; // safe limit under 30s
+                let chunk_size = chunk_seconds * sample_rate;
+                let overlap = 2 * sample_rate; // 2s overlap
+
+                if audio.len() <= chunk_size {
+                    return engine
+                        .transcribe(audio, options)
+                        .map_err(|e| format!("Ошибка GigaAM: {e}"));
+                }
+
+                log::info!(
+                    "GigaAM: chunking {:.0}s audio into ~{}s chunks",
+                    audio.len() as f64 / sample_rate as f64,
+                    chunk_seconds
+                );
+
+                let mut texts = Vec::new();
+                let mut pos = 0;
+                while pos < audio.len() {
+                    let end = (pos + chunk_size).min(audio.len());
+                    let chunk = &audio[pos..end];
+
+                    match engine.transcribe(chunk, options) {
+                        Ok(result) => {
+                            let trimmed = result.text.trim();
+                            if !trimmed.is_empty() {
+                                texts.push(trimmed.to_string());
+                            }
+                        }
+                        Err(e) => {
+                            log::warn!("GigaAM chunk error at {:.0}s: {e}", pos as f64 / sample_rate as f64);
+                        }
+                    }
+
+                    if end == audio.len() {
+                        break;
+                    }
+                    pos = end - overlap; // step back by overlap
+                }
+
+                Ok(TrResult {
+                    text: texts.join(" "),
+                    segments: None,
+                })
+            }
         }
     }
 }

@@ -1,4 +1,5 @@
 import { useModelStore, ModelInfo } from "../stores/modelStore";
+import { useI18n } from "../lib/i18n";
 
 function formatSize(mb: number): string {
   if (mb >= 1000) return `${(mb / 1000).toFixed(1)} GB`;
@@ -12,7 +13,7 @@ function formatProgress(progress: number): string {
 function ModelRow({ model }: { model: ModelInfo }) {
   const { downloadModel, deleteModel, selectModel, selectedModelId } =
     useModelStore();
-
+  const { t } = useI18n();
   const isSelected = selectedModelId === model.id;
 
   return (
@@ -63,29 +64,29 @@ function ModelRow({ model }: { model: ModelInfo }) {
                 onClick={() => selectModel(model.id)}
                 className="rounded-md px-2.5 py-1 text-xs font-medium text-[var(--accent)] hover:bg-[var(--accent)]/10 transition-colors"
               >
-                Выбрать
+                {t("select")}
               </button>
             )}
             {isSelected && (
               <span className="rounded-md px-2.5 py-1 text-xs font-medium text-[var(--success)]">
-                Активна
+                {t("active")}
               </span>
             )}
             <button
               onClick={() => deleteModel(model.id)}
               className="rounded-md px-2 py-1 text-xs text-[var(--text-muted)] hover:text-[var(--error)] hover:bg-[var(--error)]/10 transition-colors"
             >
-              Удалить
+              {t("delete")}
             </button>
           </>
         ) : model.is_downloading ? (
-          <span className="text-xs text-[var(--text-muted)]">Загрузка...</span>
+          <span className="text-xs text-[var(--text-muted)]">{t("downloading")}</span>
         ) : (
           <button
             onClick={() => downloadModel(model.id)}
             className="rounded-md px-3 py-1 text-xs font-medium bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)] transition-colors"
           >
-            Скачать
+            {t("download")}
           </button>
         )}
       </div>
@@ -95,11 +96,12 @@ function ModelRow({ model }: { model: ModelInfo }) {
 
 export default function ModelSelector() {
   const { models } = useModelStore();
+  const { t } = useI18n();
 
   return (
     <div className="flex flex-col gap-1.5">
       <h3 className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider px-1">
-        Модели
+        {t("modelsTitle")}
       </h3>
       <div className="flex flex-col gap-1 rounded-lg bg-[var(--bg-secondary)] p-2">
         {models.map((model) => (

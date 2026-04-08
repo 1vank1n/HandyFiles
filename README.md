@@ -29,9 +29,17 @@ Cross-platform desktop app for transcribing audio and video files using local AI
 
 Download the latest release for your platform from [Releases](../../releases).
 
-- **macOS**: `.dmg` (Apple Silicon & Intel)
+- **macOS**: `.dmg` (Apple Silicon)
 - **Windows**: `.exe` (NSIS installer)
 - **Linux**: `.deb` or `.AppImage`
+
+### macOS: "app is damaged" warning
+
+The app is not signed with an Apple Developer certificate. macOS Gatekeeper will block it. To fix, run in Terminal after installing:
+
+```bash
+xattr -cr /Applications/HandyFiles.app
+```
 
 ## Build from Source
 

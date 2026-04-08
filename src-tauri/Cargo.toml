@@ -1,6 +1,6 @@
 [package]
 name = "handyfiles"
-version = "0.1.0"
+version = "0.2.0"
 description = "Cross-platform file transcription app"
 authors = ["Ivan Lukyanets"]
 edition = "2021"
@@ -40,20 +40,13 @@ symphonia = { version = "0.5", features = ["isomp4", "aac", "mp3", "pcm", "flac"
 rubato = "0.15"
 hound = "3.5"
 
-# Transcription (same crate as Handy uses)
+# Transcription — base features (cross-platform)
 transcribe-rs = { version = "0.3", features = ["whisper-cpp", "onnx"] }
 
 # Archive extraction (for GigaAM models)
 tar = "0.4"
 flate2 = "1.0"
 
-# ── Platform-specific GPU acceleration ──────────────────────────
-
+# ── Platform-specific: Metal GPU acceleration on macOS ──────────
 [target.'cfg(target_os = "macos")'.dependencies]
-transcribe-rs = { version = "0.3", features = ["whisper-cpp", "whisper-metal", "onnx"] }
-
-[target.'cfg(target_os = "windows")'.dependencies]
-transcribe-rs = { version = "0.3", features = ["whisper-cpp", "onnx"] }
-
-[target.'cfg(target_os = "linux")'.dependencies]
-transcribe-rs = { version = "0.3", features = ["whisper-cpp", "onnx"] }
+transcribe-rs = { version = "0.3", features = ["whisper-metal"] }
