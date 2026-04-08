@@ -1,6 +1,6 @@
 [package]
 name = "handyfiles"
-version = "0.1.0"
+version = "0.2.0"
 description = "Cross-platform file transcription app"
 authors = ["Ivan Lukyanets"]
 edition = "2021"
