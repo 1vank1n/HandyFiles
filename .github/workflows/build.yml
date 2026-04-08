@@ -68,7 +68,12 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev \
             patchelf \
-            libfuse2
+            libfuse2 \
+            libclang-dev \
+            cmake
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
 
       - name: Install frontend dependencies
         run: pnpm install
