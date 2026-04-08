@@ -26,7 +26,7 @@ function FileItem({ file }: { file: QueuedFile }) {
   const { selectFile, selectedFileId, removeFile, retranscribeFile, cancelTranscription } = useTranscriptionStore();
   const isSelected = selectedFileId === file.id;
   const isProcessing = file.status === "converting" || file.status === "transcribing";
-  const hasProgress = isProcessing && file.progress !== undefined;
+  const hasDefiniteProgress = isProcessing && file.progress !== undefined && file.progress > 0 && file.progress < 1;
 
   const stageLabel = file.stage ? stageLabels[file.stage] ?? file.stage : null;
 
@@ -44,13 +44,9 @@ function FileItem({ file }: { file: QueuedFile }) {
           {file.filename}
         </span>
 
-        {isProcessing && !hasProgress && (
-          <div className="w-3 h-3 border-2 border-[var(--accent)] border-t-transparent rounded-full animate-spin" />
-        )}
-
         <span className={`text-xs whitespace-nowrap ${statusColors[file.status]}`}>
           {isProcessing && stageLabel
-            ? `${stageLabel}${hasProgress ? ` ${Math.round(file.progress! * 100)}%` : "..."}`
+            ? `${stageLabel}${hasDefiniteProgress ? ` ${Math.round(file.progress! * 100)}%` : "..."}`
             : file.status === "error" && file.error
               ? file.error.slice(0, 30)
               : statusLabels[file.status]}
@@ -94,12 +90,16 @@ function FileItem({ file }: { file: QueuedFile }) {
       </div>
 
       {/* Progress bar */}
-      {hasProgress && (
+      {isProcessing && (
         <div className="h-1 rounded-full bg-[var(--bg-primary)] overflow-hidden">
-          <div
-            className="h-full rounded-full bg-[var(--accent)] transition-all duration-300"
-            style={{ width: `${Math.round(file.progress! * 100)}%` }}
-          />
+          {hasDefiniteProgress ? (
+            <div
+              className="h-full rounded-full bg-[var(--accent)] transition-all duration-300"
+              style={{ width: `${Math.round(file.progress! * 100)}%` }}
+            />
+          ) : (
+            <div className="h-full w-1/3 rounded-full bg-[var(--accent)] animate-[indeterminate_1.5s_ease-in-out_infinite]" />
+          )}
         </div>
       )}
     </div>

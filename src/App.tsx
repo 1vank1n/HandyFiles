@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useModelStore } from "./stores/modelStore";
 import { useTranscriptionStore } from "./stores/transcriptionStore";
@@ -63,7 +63,11 @@ function App() {
     [addFiles, transcribeFile, selectedModelId],
   );
 
+  const listenersInitRef = useRef(false);
   useEffect(() => {
+    if (listenersInitRef.current) return;
+    listenersInitRef.current = true;
+
     fetchModels();
 
     let cleanupModel: (() => void) | null = null;
