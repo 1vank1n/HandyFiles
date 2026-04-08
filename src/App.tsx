@@ -9,6 +9,8 @@ import TranscriptionResult from "./components/TranscriptionResult";
 import SettingsPanel from "./components/SettingsPanel";
 import LogPanel from "./components/LogPanel";
 
+const APP_VERSION = __APP_VERSION__;
+
 const SUPPORTED_EXTENSIONS = [
   "mp4", "mkv", "mov", "avi", "webm",
   "mp3", "wav", "flac", "ogg", "m4a", "aac", "wma",
@@ -116,6 +118,7 @@ function App() {
       <div className="shrink-0 flex items-center justify-between px-4 pt-4 pb-2">
         <h1 className="text-lg font-semibold text-[var(--text-primary)]">
           HandyFiles
+          <span className="ml-1.5 text-xs font-normal text-[var(--text-muted)]">v{APP_VERSION}</span>
         </h1>
         <div className="flex items-center gap-1">
           <button
