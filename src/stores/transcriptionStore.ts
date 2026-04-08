@@ -10,6 +10,14 @@ export interface QueuedFile {
   result?: string;
   duration_ms?: number;
   error?: string;
+  progress?: number;
+  stage?: string;
+}
+
+export interface LogEntry {
+  fileId: string;
+  message: string;
+  timestamp: number;
 }
 
 interface TranscriptionUpdate {
@@ -20,9 +28,21 @@ interface TranscriptionUpdate {
   error?: string;
 }
 
+interface ProgressUpdate {
+  file_id: string;
+  stage: string;
+  progress: number;
+}
+
+interface LogUpdate {
+  file_id: string;
+  message: string;
+}
+
 interface TranscriptionStore {
   files: QueuedFile[];
   selectedFileId: string | null;
+  logs: LogEntry[];
 
   addFiles: (paths: string[]) => Promise<void>;
   transcribeFile: (fileId: string) => Promise<void>;
@@ -31,12 +51,14 @@ interface TranscriptionStore {
   selectFile: (fileId: string) => void;
   clearCompleted: () => Promise<void>;
   removeFile: (fileId: string) => void;
+  clearLogs: () => void;
   initListeners: () => Promise<() => void>;
 }
 
 export const useTranscriptionStore = create<TranscriptionStore>((set, get) => ({
   files: [],
   selectedFileId: null,
+  logs: [],
 
   addFiles: async (paths: string[]) => {
     try {
@@ -45,7 +67,6 @@ export const useTranscriptionStore = create<TranscriptionStore>((set, get) => ({
         files: [...state.files, ...newFiles],
       }));
 
-      // Auto-select first added file
       if (newFiles.length > 0 && !get().selectedFileId) {
         set({ selectedFileId: newFiles[0].id });
       }
@@ -65,15 +86,13 @@ export const useTranscriptionStore = create<TranscriptionStore>((set, get) => ({
   retranscribeFile: async (fileId: string) => {
     try {
       await invoke("reset_file_for_retranscribe", { fileId });
-      // Update local state
       set((state) => ({
         files: state.files.map((f) =>
           f.id === fileId
-            ? { ...f, status: "queued" as const, result: undefined, duration_ms: undefined, error: undefined }
+            ? { ...f, status: "queued" as const, result: undefined, duration_ms: undefined, error: undefined, progress: undefined, stage: undefined }
             : f,
         ),
       }));
-      // Start transcription
       await invoke("transcribe_file", { fileId });
     } catch (e) {
       console.error("Re-transcription failed:", e);
@@ -117,8 +136,10 @@ export const useTranscriptionStore = create<TranscriptionStore>((set, get) => ({
     }));
   },
 
+  clearLogs: () => set({ logs: [] }),
+
   initListeners: async () => {
-    const unlisten = await listen<TranscriptionUpdate>(
+    const unlistenUpdate = await listen<TranscriptionUpdate>(
       "transcription-update",
       (event) => {
         const { file_id, status, text, duration_ms, error } = event.payload;
@@ -136,13 +157,44 @@ export const useTranscriptionStore = create<TranscriptionStore>((set, get) => ({
           ),
         }));
 
-        // Auto-select completed file
         if (status === "completed") {
           set({ selectedFileId: file_id });
         }
       },
     );
 
-    return unlisten;
+    const unlistenProgress = await listen<ProgressUpdate>(
+      "transcription-progress",
+      (event) => {
+        const { file_id, stage, progress } = event.payload;
+        set((state) => ({
+          files: state.files.map((f) =>
+            f.id === file_id ? { ...f, progress, stage } : f,
+          ),
+        }));
+      },
+    );
+
+    const unlistenLog = await listen<LogUpdate>(
+      "transcription-log",
+      (event) => {
+        set((state) => ({
+          logs: [
+            ...state.logs,
+            {
+              fileId: event.payload.file_id,
+              message: event.payload.message,
+              timestamp: Date.now(),
+            },
+          ].slice(-200), // keep last 200 entries
+        }));
+      },
+    );
+
+    return () => {
+      unlistenUpdate();
+      unlistenProgress();
+      unlistenLog();
+    };
   },
 }));

@@ -29,21 +29,38 @@ pub fn is_native_supported(ext: &str) -> bool {
     NATIVE_EXTENSIONS.contains(&ext.to_lowercase().as_str())
 }
 
+/// Progress callback: (stage, progress 0.0..1.0)
+pub type ProgressFn = Box<dyn Fn(&str, f64) + Send>;
+
 /// Decode an audio/video file to f32 samples at 16kHz mono.
-/// Returns the samples ready for transcription.
 pub fn decode_to_samples(path: &Path) -> Result<Vec<f32>, String> {
+    decode_to_samples_with_progress(path, None)
+}
+
+/// Decode with optional progress callback.
+pub fn decode_to_samples_with_progress(
+    path: &Path,
+    progress: Option<ProgressFn>,
+) -> Result<Vec<f32>, String> {
+    let report = |stage: &str, pct: f64| {
+        if let Some(ref cb) = progress {
+            cb(stage, pct);
+        }
+    };
+
+    report("decoding", 0.0);
+
     let file = std::fs::File::open(path)
         .map_err(|e| format!("Ошибка открытия файла: {e}"))?;
+    let file_size = file.metadata().map(|m| m.len()).unwrap_or(0);
 
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
 
-    // Provide a hint based on file extension
     let mut hint = Hint::new();
     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
         hint.with_extension(ext);
     }
 
-    // Probe the format
     let probed = symphonia::default::get_probe()
         .format(
             &hint,
@@ -55,7 +72,6 @@ pub fn decode_to_samples(path: &Path) -> Result<Vec<f32>, String> {
 
     let mut format = probed.format;
 
-    // Find the first audio track
     let track = format
         .tracks()
         .iter()
@@ -71,20 +87,26 @@ pub fn decode_to_samples(path: &Path) -> Result<Vec<f32>, String> {
         .map(|c| c.count())
         .unwrap_or(1);
 
+    // Estimate total samples for progress
+    let estimated_duration = codec_params.n_frames
+        .map(|f| f as f64 / source_sample_rate as f64)
+        .unwrap_or_else(|| {
+            // Rough estimate from file size (assume ~128kbps)
+            if file_size > 0 { file_size as f64 / 16000.0 } else { 0.0 }
+        });
+
     log::info!(
-        "Audio: {} Hz, {} ch, codec {:?}",
-        source_sample_rate,
-        source_channels,
-        codec_params.codec
+        "Audio: {} Hz, {} ch, ~{:.0}s",
+        source_sample_rate, source_channels, estimated_duration
     );
 
-    // Create decoder
     let mut decoder = symphonia::default::get_codecs()
         .make(&codec_params, &DecoderOptions::default())
         .map_err(|e| format!("Кодек не поддерживается: {e}"))?;
 
-    // Decode all packets
     let mut all_samples: Vec<f32> = Vec::new();
+    let mut decoded_frames: u64 = 0;
+    let total_frames_est = (estimated_duration * source_sample_rate as f64) as u64;
 
     loop {
         let packet = match format.next_packet() {
@@ -92,40 +114,32 @@ pub fn decode_to_samples(path: &Path) -> Result<Vec<f32>, String> {
             Err(symphonia::core::errors::Error::IoError(ref e))
                 if e.kind() == std::io::ErrorKind::UnexpectedEof =>
             {
-                break; // End of stream
-            }
-            Err(e) => {
-                log::warn!("Packet error: {e}");
                 break;
             }
+            Err(_) => break,
         };
 
-        // Skip packets from other tracks
         if packet.track_id() != track_id {
             continue;
         }
 
         let decoded = match decoder.decode(&packet) {
             Ok(d) => d,
-            Err(e) => {
-                log::warn!("Decode error: {e}");
-                continue;
-            }
+            Err(_) => continue,
         };
 
         let spec = *decoded.spec();
         let num_frames = decoded.frames();
-
         if num_frames == 0 {
             continue;
         }
 
+        decoded_frames += num_frames as u64;
+
         let mut sample_buf = SampleBuffer::<f32>::new(num_frames as u64, spec);
         sample_buf.copy_interleaved_ref(decoded);
-
         let samples = sample_buf.samples();
 
-        // Convert to mono if multi-channel
         if spec.channels.count() > 1 {
             let ch = spec.channels.count();
             for frame in samples.chunks(ch) {
@@ -135,7 +149,15 @@ pub fn decode_to_samples(path: &Path) -> Result<Vec<f32>, String> {
         } else {
             all_samples.extend_from_slice(samples);
         }
+
+        // Report progress every ~1s of audio
+        if total_frames_est > 0 && decoded_frames % (source_sample_rate as u64) < num_frames as u64 {
+            let pct = (decoded_frames as f64 / total_frames_est as f64).min(0.99);
+            report("decoding", pct);
+        }
     }
+
+    report("decoding", 1.0);
 
     if all_samples.is_empty() {
         return Err("Файл не содержит аудио данных".to_string());
@@ -145,11 +167,13 @@ pub fn decode_to_samples(path: &Path) -> Result<Vec<f32>, String> {
     if source_sample_rate != TARGET_SAMPLE_RATE {
         log::info!(
             "Resampling {} Hz → {} Hz ({} samples)",
-            source_sample_rate,
-            TARGET_SAMPLE_RATE,
-            all_samples.len()
+            source_sample_rate, TARGET_SAMPLE_RATE, all_samples.len()
         );
-        all_samples = resample(&all_samples, source_sample_rate, TARGET_SAMPLE_RATE)?;
+        report("resampling", 0.0);
+        all_samples = resample(&all_samples, source_sample_rate, TARGET_SAMPLE_RATE, &|pct| {
+            report("resampling", pct);
+        })?;
+        report("resampling", 1.0);
     }
 
     log::info!(
@@ -166,42 +190,41 @@ fn resample(
     samples: &[f32],
     source_rate: u32,
     target_rate: u32,
+    progress: &dyn Fn(f64),
 ) -> Result<Vec<f32>, String> {
     use rubato::Resampler;
 
     let params = SincInterpolationParameters {
-        sinc_len: 256,
+        sinc_len: 64,
         f_cutoff: 0.95,
         interpolation: SincInterpolationType::Linear,
-        oversampling_factor: 256,
+        oversampling_factor: 128,
         window: WindowFunction::BlackmanHarris2,
     };
 
     let ratio = target_rate as f64 / source_rate as f64;
+    let chunk_size = 4096;
 
     let mut resampler = SincFixedIn::<f32>::new(
         ratio,
-        2.0, // max relative ratio
+        2.0,
         params,
-        samples.len().min(1024), // chunk size
-        1, // mono
+        chunk_size,
+        1,
     )
     .map_err(|e| format!("Ошибка инициализации ресемплера: {e}"))?;
 
-    // Process in chunks
-    let chunk_size = resampler.input_frames_max();
+    let input_chunk_size = resampler.input_frames_max();
     let mut output = Vec::with_capacity((samples.len() as f64 * ratio * 1.1) as usize);
+    let total = samples.len();
 
     let mut pos = 0;
-    while pos < samples.len() {
-        let end = (pos + chunk_size).min(samples.len());
+    while pos < total {
+        let end = (pos + input_chunk_size).min(total);
         let chunk = &samples[pos..end];
-
-        // Rubato expects Vec<Vec<f32>> (channels x samples)
         let input = vec![chunk.to_vec()];
 
-        let result = if end == samples.len() {
-            // Last chunk — process remaining
+        let result = if end == total {
             resampler.process_partial(Some(&input), None)
         } else {
             resampler.process(&input, None)
@@ -214,12 +237,13 @@ fn resample(
                 }
             }
             Err(e) => {
-                log::warn!("Resample chunk error: {e}");
+                log::warn!("Resample error: {e}");
                 break;
             }
         }
 
         pos = end;
+        progress(pos as f64 / total as f64);
     }
 
     Ok(output)

@@ -174,6 +174,19 @@ struct TranscriptionEvent {
     error: Option<String>,
 }
 
+#[derive(Clone, serde::Serialize)]
+struct ProgressEvent {
+    file_id: String,
+    stage: String,
+    progress: f64,
+}
+
+#[derive(Clone, serde::Serialize)]
+struct LogEvent {
+    file_id: String,
+    message: String,
+}
+
 #[tauri::command]
 pub async fn transcribe_file(
     file_id: String,
@@ -219,6 +232,26 @@ pub async fn transcribe_file(
     update_file_status(&state, &file_id, FileStatus::Converting, None, None, None);
     emit_update(&app_handle, &file_id, FileStatus::Converting, None, None, None);
 
+    // Progress helper
+    let ah = app_handle.clone();
+    let fid = file_id.clone();
+    let emit_progress = move |stage: &str, pct: f64| {
+        let _ = ah.emit("transcription-progress", ProgressEvent {
+            file_id: fid.clone(),
+            stage: stage.to_string(),
+            progress: pct,
+        });
+    };
+
+    let ah2 = app_handle.clone();
+    let fid2 = file_id.clone();
+    let emit_log = move |msg: String| {
+        let _ = ah2.emit("transcription-log", LogEvent {
+            file_id: fid2.clone(),
+            message: msg,
+        });
+    };
+
     // Step 1: Decode audio to f32 samples at 16kHz mono
     let ext = input_path
         .extension()
@@ -226,33 +259,47 @@ pub async fn transcribe_file(
         .map(|e| e.to_lowercase())
         .unwrap_or_default();
 
+    emit_log(format!("Декодирование: {}", filename));
+
+    let ep = emit_progress.clone();
     let audio = if crate::managers::audio::is_native_supported(&ext) {
-        // Native Rust decoder (Symphonia + Rubato) — no external dependencies
         log::info!("Decoding {} natively (Symphonia)", filename);
-        match crate::managers::audio::decode_to_samples(input_path) {
-            Ok(samples) => samples,
+        emit_log(format!("Декодер: Symphonia ({})", ext));
+        let progress_fn: crate::managers::audio::ProgressFn = Box::new(move |stage, pct| {
+            ep(stage, pct);
+        });
+        match crate::managers::audio::decode_to_samples_with_progress(input_path, Some(progress_fn)) {
+            Ok(samples) => {
+                emit_log(format!("Декодировано: {:.1}с аудио", samples.len() as f64 / 16000.0));
+                samples
+            }
             Err(e) => {
-                // Try FFmpeg fallback
+                emit_log(format!("Symphonia ошибка: {}, пробую FFmpeg", e));
                 log::warn!("Native decode failed, trying FFmpeg: {e}");
                 ffmpeg_fallback(&state, input_path, &filename)?
             }
         }
     } else {
-        // FFmpeg fallback for AVI, MOV, WMA etc.
         log::info!("Using FFmpeg for {} (unsupported by native decoder)", ext);
+        emit_log(format!("Декодер: FFmpeg ({})", ext));
         ffmpeg_fallback(&state, input_path, &filename)?
     };
 
     // Update status → transcribing
     update_file_status(&state, &file_id, FileStatus::Transcribing, None, None, None);
     emit_update(&app_handle, &file_id, FileStatus::Transcribing, None, None, None);
+    emit_progress("transcribing", 0.0);
 
     // Step 3: Load model if needed
+    emit_log(format!("Загрузка модели: {}", model_id));
     state.transcription.load_model(&model_id, &model_path, &engine_type)?;
+    emit_log("Модель загружена".to_string());
 
     // Step 4: Transcribe
-    log::info!("Transcribing {} with model {}", filename, model_id);
+    emit_log(format!("Транскрибация {:.1}с аудио...", audio.len() as f64 / 16000.0));
+    log::info!("Transcribing {} with model {} ({:.1}s audio)", filename, model_id, audio.len() as f64 / 16000.0);
     let result = state.transcription.transcribe(&audio, &language, false)?;
+    emit_progress("transcribing", 1.0);
 
     // Update status → completed
     update_file_status(

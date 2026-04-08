@@ -7,6 +7,7 @@ import ModelSelector from "./components/ModelSelector";
 import FileQueue from "./components/FileQueue";
 import TranscriptionResult from "./components/TranscriptionResult";
 import SettingsPanel from "./components/SettingsPanel";
+import LogPanel from "./components/LogPanel";
 
 const SUPPORTED_EXTENSIONS = [
   "mp4", "mkv", "mov", "avi", "webm",
@@ -32,6 +33,7 @@ function App() {
   const [isDragging, setIsDragging] = useState(false);
   const [showModels, setShowModels] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showLog, setShowLog] = useState(false);
 
   const { fetchModels, initListeners: initModelListeners, selectedModelId, language } =
     useModelStore();
@@ -157,6 +159,9 @@ function App() {
       {/* Transcription Result */}
       <TranscriptionResult />
 
+      {/* Log Panel */}
+      {showLog && <LogPanel onClose={() => setShowLog(false)} />}
+
       {/* Status Bar */}
       <div className="mt-auto flex items-center gap-2 text-xs text-[var(--text-muted)] pt-2 border-t border-[var(--border-color)]">
         <span>
@@ -173,6 +178,12 @@ function App() {
             </div>
           </>
         )}
+        <button
+          onClick={() => setShowLog(!showLog)}
+          className={`ml-auto transition-colors ${showLog ? "text-[var(--text-secondary)]" : "hover:text-[var(--text-secondary)]"}`}
+        >
+          Лог
+        </button>
       </div>
     </div>
   );
