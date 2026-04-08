@@ -223,6 +223,8 @@ struct ProgressEvent {
     file_id: String,
     stage: String,
     progress: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    audio_duration_sec: Option<f64>,
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -284,6 +286,7 @@ pub async fn transcribe_file(
             file_id: fid.clone(),
             stage: stage.to_string(),
             progress: pct,
+            audio_duration_sec: None,
         });
     };
 
@@ -342,10 +345,16 @@ pub async fn transcribe_file(
         return Ok(());
     }
 
-    // Update status → transcribing
+    // Update status → transcribing (with audio duration for ETA)
+    let audio_duration_sec = audio.len() as f64 / 16000.0;
     update_file_status(&state, &file_id, FileStatus::Transcribing, None, None, None);
     emit_update(&app_handle, &file_id, FileStatus::Transcribing, None, None, None);
-    emit_progress("transcribing", 0.0);
+    let _ = app_handle.emit("transcription-progress", ProgressEvent {
+        file_id: file_id.clone(),
+        stage: "transcribing".to_string(),
+        progress: 0.0,
+        audio_duration_sec: Some(audio_duration_sec),
+    });
 
     // Step 3: Load model if needed
     emit_log(format!("Загрузка модели: {}", model_id));

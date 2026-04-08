@@ -169,9 +169,6 @@ function App() {
       {/* Transcription Result */}
       <TranscriptionResult />
 
-      {/* Log Panel */}
-      {showLog && <LogPanel onClose={() => setShowLog(false)} />}
-
       {/* Status Bar */}
       <div className="mt-auto flex items-center gap-2 text-xs text-[var(--text-muted)] pt-2 border-t border-[var(--border-color)]">
         <span>
@@ -195,6 +192,13 @@ function App() {
           Лог
         </button>
       </div>
+
+      {/* Log Panel — fixed overlay at bottom */}
+      {showLog && (
+        <div className="fixed bottom-0 left-0 right-0 z-50 p-2">
+          <LogPanel onClose={() => setShowLog(false)} />
+        </div>
+      )}
     </div>
   );
 }

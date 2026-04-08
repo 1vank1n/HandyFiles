@@ -35,6 +35,7 @@ interface ProgressUpdate {
   file_id: string;
   stage: string;
   progress: number;
+  audio_duration_sec?: number;
 }
 
 interface LogUpdate {
@@ -201,10 +202,17 @@ export const useTranscriptionStore = create<TranscriptionStore>((set, get) => ({
     const unlistenProgress = await listen<ProgressUpdate>(
       "transcription-progress",
       (event) => {
-        const { file_id, stage, progress } = event.payload;
+        const { file_id, stage, progress, audio_duration_sec } = event.payload;
         set((state) => ({
           files: state.files.map((f) =>
-            f.id === file_id ? { ...f, progress, stage } : f,
+            f.id === file_id
+              ? {
+                  ...f,
+                  progress,
+                  stage,
+                  audioDurationSec: audio_duration_sec ?? f.audioDurationSec,
+                }
+              : f,
           ),
         }));
       },
@@ -213,25 +221,12 @@ export const useTranscriptionStore = create<TranscriptionStore>((set, get) => ({
     const unlistenLog = await listen<LogUpdate>(
       "transcription-log",
       (event) => {
-        const { file_id, message } = event.payload;
-
-        // Extract audio duration from log message like "Декодировано: 337.9с аудио"
-        const durMatch = message.match(/(\d+\.?\d*)с аудио/);
-        if (durMatch) {
-          const dur = parseFloat(durMatch[1]);
-          set((state) => ({
-            files: state.files.map((f) =>
-              f.id === file_id ? { ...f, audioDurationSec: dur } : f,
-            ),
-          }));
-        }
-
         set((state) => ({
           logs: [
             ...state.logs,
             {
-              fileId: file_id,
-              message,
+              fileId: event.payload.file_id,
+              message: event.payload.message,
               timestamp: Date.now(),
             },
           ].slice(-200),
