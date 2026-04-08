@@ -1,4 +1,36 @@
+import { useState, useEffect } from "react";
 import { useTranscriptionStore, QueuedFile } from "../stores/transcriptionStore";
+
+/** Live elapsed timer with optional ETA. */
+function ElapsedTime({ startedAt, audioDurationSec, speedRatio }: {
+  startedAt: number;
+  audioDurationSec?: number;
+  speedRatio: number | null;
+}) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const elapsed = Math.floor((now - startedAt) / 1000);
+  const m = Math.floor(elapsed / 60);
+  const s = elapsed % 60;
+  const elapsedStr = `${m}:${s.toString().padStart(2, "0")}`;
+
+  // ETA based on previous speed ratio
+  if (speedRatio && audioDurationSec && elapsed > 2) {
+    const estimatedTotal = audioDurationSec / speedRatio;
+    const remaining = Math.max(0, Math.round(estimatedTotal - elapsed));
+    if (remaining > 0) {
+      const rm = Math.floor(remaining / 60);
+      const rs = remaining % 60;
+      return <span>{elapsedStr} (~{rm}:{rs.toString().padStart(2, "0")})</span>;
+    }
+  }
+
+  return <span>{elapsedStr}</span>;
+}
 
 const stageLabels: Record<string, string> = {
   decoding: "Декодирование",
@@ -23,7 +55,7 @@ const statusColors: Record<QueuedFile["status"], string> = {
 };
 
 function FileItem({ file }: { file: QueuedFile }) {
-  const { selectFile, selectedFileId, removeFile, retranscribeFile, cancelTranscription } = useTranscriptionStore();
+  const { selectFile, selectedFileId, removeFile, retranscribeFile, cancelTranscription, lastSpeedRatio } = useTranscriptionStore();
   const isSelected = selectedFileId === file.id;
   const isProcessing = file.status === "converting" || file.status === "transcribing";
   const hasDefiniteProgress = isProcessing && file.progress !== undefined && file.progress > 0 && file.progress < 1;
@@ -46,7 +78,15 @@ function FileItem({ file }: { file: QueuedFile }) {
 
         <span className={`text-xs whitespace-nowrap ${statusColors[file.status]}`}>
           {isProcessing && stageLabel
-            ? `${stageLabel}${hasDefiniteProgress ? ` ${Math.round(file.progress! * 100)}%` : "..."}`
+            ? <>
+                {stageLabel}
+                {hasDefiniteProgress
+                  ? ` ${Math.round(file.progress! * 100)}%`
+                  : file.processingStartedAt
+                    ? <> <ElapsedTime startedAt={file.processingStartedAt} audioDurationSec={file.audioDurationSec} speedRatio={lastSpeedRatio} /></>
+                    : "..."
+                }
+              </>
             : file.status === "error" && file.error
               ? file.error.slice(0, 30)
               : statusLabels[file.status]}

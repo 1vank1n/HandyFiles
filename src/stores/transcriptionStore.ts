@@ -13,6 +13,8 @@ export interface QueuedFile {
   error?: string;
   progress?: number;
   stage?: string;
+  processingStartedAt?: number;
+  audioDurationSec?: number;
 }
 
 export interface LogEntry {
@@ -44,6 +46,8 @@ interface TranscriptionStore {
   files: QueuedFile[];
   selectedFileId: string | null;
   logs: LogEntry[];
+  /** Seconds of audio per second of processing (measured from last completed transcription). */
+  lastSpeedRatio: number | null;
 
   addFiles: (paths: string[]) => Promise<void>;
   transcribeFile: (fileId: string) => Promise<void>;
@@ -61,6 +65,7 @@ export const useTranscriptionStore = create<TranscriptionStore>((set, get) => ({
   files: [],
   selectedFileId: null,
   logs: [],
+  lastSpeedRatio: null,
 
   addFiles: async (paths: string[]) => {
     try {
@@ -160,21 +165,34 @@ export const useTranscriptionStore = create<TranscriptionStore>((set, get) => ({
       "transcription-update",
       (event) => {
         const { file_id, status, text, duration_ms, error } = event.payload;
+        const isStarting = status === "converting" || status === "transcribing";
         set((state) => ({
-          files: state.files.map((f) =>
-            f.id === file_id
-              ? {
-                  ...f,
-                  status: status as QueuedFile["status"],
-                  result: text ?? f.result,
-                  duration_ms: duration_ms ?? f.duration_ms,
-                  error: error ?? f.error,
-                }
-              : f,
-          ),
+          files: state.files.map((f) => {
+            if (f.id !== file_id) return f;
+            return {
+              ...f,
+              status: status as QueuedFile["status"],
+              result: text ?? f.result,
+              duration_ms: duration_ms ?? f.duration_ms,
+              error: error ?? f.error,
+              processingStartedAt: isStarting && !f.processingStartedAt
+                ? Date.now()
+                : status === "completed" || status === "error"
+                  ? undefined
+                  : f.processingStartedAt,
+            };
+          }),
         }));
 
         if (status === "completed") {
+          // Compute speed ratio from this transcription
+          const file = get().files.find((f) => f.id === file_id);
+          if (file?.processingStartedAt && file.audioDurationSec) {
+            const processingTimeSec = (Date.now() - file.processingStartedAt) / 1000;
+            if (processingTimeSec > 0) {
+              set({ lastSpeedRatio: file.audioDurationSec / processingTimeSec });
+            }
+          }
           set({ selectedFileId: file_id });
         }
       },
@@ -195,15 +213,28 @@ export const useTranscriptionStore = create<TranscriptionStore>((set, get) => ({
     const unlistenLog = await listen<LogUpdate>(
       "transcription-log",
       (event) => {
+        const { file_id, message } = event.payload;
+
+        // Extract audio duration from log message like "Декодировано: 337.9с аудио"
+        const durMatch = message.match(/(\d+\.?\d*)с аудио/);
+        if (durMatch) {
+          const dur = parseFloat(durMatch[1]);
+          set((state) => ({
+            files: state.files.map((f) =>
+              f.id === file_id ? { ...f, audioDurationSec: dur } : f,
+            ),
+          }));
+        }
+
         set((state) => ({
           logs: [
             ...state.logs,
             {
-              fileId: event.payload.file_id,
-              message: event.payload.message,
+              fileId: file_id,
+              message,
               timestamp: Date.now(),
             },
-          ].slice(-200), // keep last 200 entries
+          ].slice(-200),
         }));
       },
     );
