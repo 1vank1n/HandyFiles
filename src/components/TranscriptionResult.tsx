@@ -39,7 +39,7 @@ export default function TranscriptionResult() {
   };
 
   return (
-    <div className="flex flex-col gap-2 flex-1 min-h-0">
+    <div className="flex flex-col gap-2 flex-1 min-h-0 pb-3">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <h2 className="text-sm font-medium text-[var(--text-secondary)]">
