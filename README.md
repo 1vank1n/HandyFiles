@@ -2,6 +2,8 @@
 
 Cross-platform desktop app for transcribing audio and video files using local AI models. No cloud, no API keys — everything runs on your machine.
 
+> Inspired by [Handy](https://github.com/cjpais/Handy) — a great open-source speech-to-text app. HandyFiles borrows its model management approach, uses the same [transcribe-rs](https://github.com/cjpais/transcribe-rs) engine, and shares the GigaAM model distribution. While Handy focuses on live microphone recording, HandyFiles is designed for file-based transcription with drag & drop.
+
 ## Features
 
 - **Drag & drop** any audio or video file
