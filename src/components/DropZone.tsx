@@ -1,4 +1,5 @@
 import { open } from "@tauri-apps/plugin-dialog";
+import { useI18n } from "../lib/i18n";
 
 interface DropZoneProps {
   isDragging: boolean;
@@ -6,6 +7,8 @@ interface DropZoneProps {
 }
 
 function DropZone({ isDragging, onFiles }: DropZoneProps) {
+  const { t } = useI18n();
+
   const handleClick = async () => {
     const selected = await open({
       multiple: true,
@@ -40,7 +43,6 @@ function DropZone({ isDragging, onFiles }: DropZoneProps) {
         }
       `}
     >
-      {/* Arrow icon */}
       <svg
         className={`mb-3 h-10 w-10 transition-colors ${
           isDragging ? "text-[var(--accent)]" : "text-[var(--text-muted)]"
@@ -62,11 +64,11 @@ function DropZone({ isDragging, onFiles }: DropZoneProps) {
           isDragging ? "text-[var(--accent)]" : "text-[var(--text-secondary)]"
         }`}
       >
-        {isDragging ? "Отпустите файл" : "Перетащите аудио или видео"}
+        {t("dropTitle")}
       </p>
 
       <p className="mt-1 text-xs text-[var(--text-muted)]">
-        или нажмите для выбора · mp4 · mp3 · wav · m4a · mkv · webm
+        {t("dropSubtitle")} · mp4 · mp3 · wav · m4a · mkv · webm
       </p>
     </div>
   );

@@ -8,6 +8,7 @@ import FileQueue from "./components/FileQueue";
 import TranscriptionResult from "./components/TranscriptionResult";
 import SettingsPanel from "./components/SettingsPanel";
 import LogPanel from "./components/LogPanel";
+import { useI18n } from "./lib/i18n";
 
 const APP_VERSION = __APP_VERSION__;
 
@@ -37,6 +38,7 @@ function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showLog, setShowLog] = useState(false);
 
+  const { t } = useI18n();
   const { fetchModels, selectedModelId, language } =
     useModelStore();
   const { addFiles, transcribeFile, files } =
@@ -129,7 +131,7 @@ function App() {
                 : "text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
             }`}
           >
-            Настройки
+            {t("settings")}
           </button>
           <button
             onClick={() => { setShowModels(!showModels); setShowSettings(false); }}
@@ -139,7 +141,7 @@ function App() {
                 : "text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
             }`}
           >
-            Модели
+            {t("models")}
           </button>
         </div>
       </div>
@@ -158,12 +160,12 @@ function App() {
         {/* No model warning */}
         {!selectedModelId && hasFiles && (
           <div className="rounded-lg bg-[var(--error)]/10 border border-[var(--error)]/30 px-4 py-2.5 text-sm text-[var(--error)]">
-            Выберите модель для транскрибации.{" "}
+            {t("selectModelWarning")}{" "}
             <button
               onClick={() => { setShowModels(true); setShowSettings(false); }}
               className="underline hover:no-underline"
             >
-              Открыть модели
+              {t("openModels")}
             </button>
           </div>
         )}
@@ -178,7 +180,7 @@ function App() {
       {/* Status Bar — fixed bottom */}
       <div className="shrink-0 flex items-center gap-2 text-xs text-[var(--text-muted)] px-4 py-2 border-t border-[var(--border-color)]">
         <span>
-          {selectedModel ? selectedModel.name : "Модель не выбрана"}
+          {selectedModel ? selectedModel.name : t("modelNotSelected")}
         </span>
         <span>·</span>
         <span>{LANGUAGE_NAMES[language] ?? language}</span>
@@ -187,7 +189,7 @@ function App() {
             <span>·</span>
             <div className="flex items-center gap-1">
               <div className="w-2 h-2 border border-[var(--accent)] border-t-transparent rounded-full animate-spin" />
-              <span className="text-[var(--accent)]">Обработка</span>
+              <span className="text-[var(--accent)]">{t("processing")}</span>
             </div>
           </>
         )}
@@ -195,7 +197,7 @@ function App() {
           onClick={() => setShowLog(!showLog)}
           className={`ml-auto transition-colors ${showLog ? "text-[var(--text-secondary)]" : "hover:text-[var(--text-secondary)]"}`}
         >
-          Лог
+          {t("log")}
         </button>
       </div>
 

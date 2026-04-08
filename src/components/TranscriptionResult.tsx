@@ -1,4 +1,5 @@
 import { useTranscriptionStore } from "../stores/transcriptionStore";
+import { useI18n } from "../lib/i18n";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
@@ -7,6 +8,7 @@ import { useState } from "react";
 
 export default function TranscriptionResult() {
   const { files, selectedFileId, retranscribeFile } = useTranscriptionStore();
+  const { t } = useI18n();
   const [copied, setCopied] = useState(false);
 
   const file = files.find((f) => f.id === selectedFileId);
@@ -26,7 +28,7 @@ export default function TranscriptionResult() {
     try {
       const baseName = file.filename.replace(/\.[^.]+$/, "");
       const path = await save({
-        title: "Сохранить транскрибацию",
+        title: t("saveTranscription"),
         defaultPath: `${baseName}.txt`,
         filters: [{ name: "Text", extensions: ["txt"] }],
       });
@@ -43,11 +45,11 @@ export default function TranscriptionResult() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <h2 className="text-sm font-medium text-[var(--text-secondary)]">
-            Результат
+            {t("result")}
           </h2>
           {file.duration_ms && (
             <span className="text-xs text-[var(--text-muted)]">
-              {(file.duration_ms / 1000).toFixed(1)}с
+              {(file.duration_ms / 1000).toFixed(1)}s
             </span>
           )}
         </div>
@@ -57,7 +59,7 @@ export default function TranscriptionResult() {
               onClick={async () => {
                 const baseName = file.filename.replace(/\.[^.]+$/, "");
                 const path = await save({
-                  title: "Сохранить аудио дорожку",
+                  title: t("saveAudioTrack"),
                   defaultPath: `${baseName}.wav`,
                   filters: [{ name: "WAV Audio", extensions: ["wav"] }],
                 });
@@ -70,7 +72,7 @@ export default function TranscriptionResult() {
                 }
               }}
               className="rounded-md p-1 text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors"
-              title="Скачать аудио дорожку (WAV)"
+              title={t("saveAudioTrack")}
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="m9 9 10.5-3m0 6.553v3.75a2.25 2.25 0 0 1-1.632 2.163l-1.32.377a1.803 1.803 0 1 1-.99-3.467l2.31-.66a2.25 2.25 0 0 0 1.632-2.163Zm0 0V2.25L9 5.25v10.303m0 0v3.75a2.25 2.25 0 0 1-1.632 2.163l-1.32.377a1.803 1.803 0 0 1-.99-3.467l2.31-.66A2.25 2.25 0 0 0 9 15.553Z" />
@@ -80,21 +82,21 @@ export default function TranscriptionResult() {
           <button
             onClick={() => retranscribeFile(file.id)}
             className="rounded-md px-3 py-1 text-xs font-medium text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors"
-            title="Перетранскрибировать другой моделью"
+            title={t("retry")}
           >
-            Повторить
+            {t("retry")}
           </button>
           <button
             onClick={handleCopy}
             className="rounded-md px-3 py-1 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors"
           >
-            {copied ? "Скопировано!" : "Копировать"}
+            {copied ? t("copied") : t("copy")}
           </button>
           <button
             onClick={handleSave}
             className="rounded-md px-3 py-1 text-xs font-medium bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)] transition-colors"
           >
-            Сохранить
+            {t("save")}
           </button>
         </div>
       </div>

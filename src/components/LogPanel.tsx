@@ -1,8 +1,10 @@
 import { useRef, useEffect } from "react";
 import { useTranscriptionStore } from "../stores/transcriptionStore";
+import { useI18n } from "../lib/i18n";
 
 export default function LogPanel({ onClose }: { onClose: () => void }) {
   const { logs, clearLogs } = useTranscriptionStore();
+  const { t } = useI18n();
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -13,7 +15,7 @@ export default function LogPanel({ onClose }: { onClose: () => void }) {
     <div className="flex flex-col gap-2 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] overflow-hidden">
       <div className="flex items-center justify-between px-3 pt-3">
         <h3 className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">
-          Лог
+          {t("logTitle")}
         </h3>
         <div className="flex items-center gap-2">
           {logs.length > 0 && (
@@ -21,7 +23,7 @@ export default function LogPanel({ onClose }: { onClose: () => void }) {
               onClick={clearLogs}
               className="text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors"
             >
-              Очистить
+              {t("logClear")}
             </button>
           )}
           <button
@@ -36,10 +38,10 @@ export default function LogPanel({ onClose }: { onClose: () => void }) {
       </div>
       <div className="max-h-40 overflow-y-auto px-3 pb-3 font-mono text-[11px] leading-relaxed text-[var(--text-muted)]">
         {logs.length === 0 ? (
-          <p className="py-2 text-center">Пусто</p>
+          <p className="py-2 text-center">{t("logEmpty")}</p>
         ) : (
           logs.map((log, i) => {
-            const time = new Date(log.timestamp).toLocaleTimeString("ru", {
+            const time = new Date(log.timestamp).toLocaleTimeString("en-GB", {
               hour: "2-digit",
               minute: "2-digit",
               second: "2-digit",
