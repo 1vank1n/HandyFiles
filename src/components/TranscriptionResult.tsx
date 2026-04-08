@@ -98,7 +98,7 @@ export default function TranscriptionResult() {
           </button>
         </div>
       </div>
-      <div className="flex-1 min-h-0 overflow-y-auto rounded-lg bg-[var(--bg-secondary)] p-4">
+      <div className="min-h-[120px] max-h-[400px] overflow-y-auto rounded-lg bg-[var(--bg-secondary)] p-4">
         <p className="text-sm text-[var(--text-primary)] whitespace-pre-wrap leading-relaxed">
           {file.result}
         </p>
