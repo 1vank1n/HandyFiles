@@ -99,6 +99,7 @@ pub struct QueuedFile {
     pub id: String,
     pub path: String,
     pub filename: String,
+    pub is_video: bool,
     pub status: FileStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<String>,

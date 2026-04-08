@@ -6,6 +6,7 @@ export interface QueuedFile {
   id: string;
   path: string;
   filename: string;
+  is_video: boolean;
   status: "queued" | "converting" | "transcribing" | "completed" | "error";
   result?: string;
   duration_ms?: number;

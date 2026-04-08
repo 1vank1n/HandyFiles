@@ -115,10 +115,14 @@ pub fn queue_files(paths: Vec<String>, state: State<AppState>) -> Result<Vec<Que
             .unwrap_or("unknown")
             .to_string();
 
+        let video_extensions = ["mp4", "mkv", "mov", "avi", "webm"];
+        let is_video = video_extensions.contains(&ext.as_str());
+
         let file = QueuedFile {
             id: uuid::Uuid::new_v4().to_string(),
             path: path.clone(),
             filename,
+            is_video,
             status: FileStatus::Queued,
             result: None,
             duration_ms: None,
@@ -162,10 +166,42 @@ pub fn reset_file_for_retranscribe(file_id: String, state: State<AppState>) -> R
 
 #[tauri::command]
 pub fn cancel_transcription(file_id: String, state: State<AppState>) {
-    // Mark as cancelled
     state.cancelled.lock().unwrap().insert(file_id.clone());
-    // Update file status
     update_file_status(&state, &file_id, FileStatus::Error, None, None, Some("Отменено".into()));
+}
+
+/// Export audio track from a video file as WAV.
+#[tauri::command]
+pub async fn export_audio(
+    file_id: String,
+    output_path: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let source_path = {
+        let queue = state.queued_files.lock().unwrap();
+        let file = queue.iter().find(|f| f.id == file_id).ok_or("Файл не найден")?;
+        file.path.clone()
+    };
+
+    let samples = crate::managers::audio::decode_to_samples(Path::new(&source_path))?;
+
+    // Write WAV 16kHz mono
+    let spec = hound::WavSpec {
+        channels: 1,
+        sample_rate: 16000,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+    let mut writer = hound::WavWriter::create(&output_path, spec)
+        .map_err(|e| format!("Ошибка создания WAV: {e}"))?;
+    for &s in &samples {
+        let sample = (s * i16::MAX as f32).clamp(i16::MIN as f32, i16::MAX as f32) as i16;
+        writer.write_sample(sample).map_err(|e| format!("Ошибка записи: {e}"))?;
+    }
+    writer.finalize().map_err(|e| format!("Ошибка финализации: {e}"))?;
+
+    log::info!("Audio exported to {}", output_path);
+    Ok(())
 }
 
 // ── Transcription commands ──────────────────────────────────────

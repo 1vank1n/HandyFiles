@@ -2,6 +2,7 @@ import { useTranscriptionStore } from "../stores/transcriptionStore";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
+import { invoke } from "@tauri-apps/api/core";
 import { useState } from "react";
 
 export default function TranscriptionResult() {
@@ -51,6 +52,31 @@ export default function TranscriptionResult() {
           )}
         </div>
         <div className="flex gap-1.5">
+          {file.is_video && (
+            <button
+              onClick={async () => {
+                const baseName = file.filename.replace(/\.[^.]+$/, "");
+                const path = await save({
+                  title: "Сохранить аудио дорожку",
+                  defaultPath: `${baseName}.wav`,
+                  filters: [{ name: "WAV Audio", extensions: ["wav"] }],
+                });
+                if (path) {
+                  try {
+                    await invoke("export_audio", { fileId: file.id, outputPath: path });
+                  } catch (e) {
+                    console.error("Export failed:", e);
+                  }
+                }
+              }}
+              className="rounded-md p-1 text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+              title="Скачать аудио дорожку (WAV)"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="m9 9 10.5-3m0 6.553v3.75a2.25 2.25 0 0 1-1.632 2.163l-1.32.377a1.803 1.803 0 1 1-.99-3.467l2.31-.66a2.25 2.25 0 0 0 1.632-2.163Zm0 0V2.25L9 5.25v10.303m0 0v3.75a2.25 2.25 0 0 1-1.632 2.163l-1.32.377a1.803 1.803 0 0 1-.99-3.467l2.31-.66A2.25 2.25 0 0 0 9 15.553Z" />
+              </svg>
+            </button>
+          )}
           <button
             onClick={() => retranscribeFile(file.id)}
             className="rounded-md px-3 py-1 text-xs font-medium text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors"
