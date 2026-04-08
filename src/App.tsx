@@ -111,9 +111,9 @@ function App() {
   );
 
   return (
-    <div className="flex h-full flex-col p-4 gap-3">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+    <div className="flex h-full flex-col">
+      {/* Header — fixed top */}
+      <div className="shrink-0 flex items-center justify-between px-4 pt-4 pb-2">
         <h1 className="text-lg font-semibold text-[var(--text-primary)]">
           HandyFiles
         </h1>
@@ -141,36 +141,39 @@ function App() {
         </div>
       </div>
 
-      {/* Settings panel */}
-      {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
+      {/* Scrollable content area */}
+      <div className="flex-1 min-h-0 overflow-y-auto px-4 flex flex-col gap-3">
+        {/* Settings panel */}
+        {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
 
-      {/* Model selector panel */}
-      {showModels && <ModelSelector />}
+        {/* Model selector panel */}
+        {showModels && <ModelSelector />}
 
-      {/* Drop Zone */}
-      <DropZone isDragging={isDragging} onFiles={handleFileDrop} />
+        {/* Drop Zone */}
+        <DropZone isDragging={isDragging} onFiles={handleFileDrop} />
 
-      {/* No model warning */}
-      {!selectedModelId && hasFiles && (
-        <div className="rounded-lg bg-[var(--error)]/10 border border-[var(--error)]/30 px-4 py-2.5 text-sm text-[var(--error)]">
-          Выберите модель для транскрибации.{" "}
-          <button
-            onClick={() => { setShowModels(true); setShowSettings(false); }}
-            className="underline hover:no-underline"
-          >
-            Открыть модели
-          </button>
-        </div>
-      )}
+        {/* No model warning */}
+        {!selectedModelId && hasFiles && (
+          <div className="rounded-lg bg-[var(--error)]/10 border border-[var(--error)]/30 px-4 py-2.5 text-sm text-[var(--error)]">
+            Выберите модель для транскрибации.{" "}
+            <button
+              onClick={() => { setShowModels(true); setShowSettings(false); }}
+              className="underline hover:no-underline"
+            >
+              Открыть модели
+            </button>
+          </div>
+        )}
 
-      {/* File Queue */}
-      <FileQueue />
+        {/* File Queue */}
+        <FileQueue />
 
-      {/* Transcription Result */}
-      <TranscriptionResult />
+        {/* Transcription Result */}
+        <TranscriptionResult />
+      </div>
 
-      {/* Status Bar */}
-      <div className="mt-auto flex items-center gap-2 text-xs text-[var(--text-muted)] pt-2 border-t border-[var(--border-color)]">
+      {/* Status Bar — fixed bottom */}
+      <div className="shrink-0 flex items-center gap-2 text-xs text-[var(--text-muted)] px-4 py-2 border-t border-[var(--border-color)]">
         <span>
           {selectedModel ? selectedModel.name : "Модель не выбрана"}
         </span>
@@ -193,9 +196,9 @@ function App() {
         </button>
       </div>
 
-      {/* Log Panel — fixed overlay at bottom */}
+      {/* Log Panel — fixed overlay above status bar */}
       {showLog && (
-        <div className="fixed bottom-0 left-0 right-0 z-50 p-2">
+        <div className="fixed bottom-8 left-0 right-0 z-50 px-2">
           <LogPanel onClose={() => setShowLog(false)} />
         </div>
       )}
