@@ -160,6 +160,14 @@ pub fn reset_file_for_retranscribe(file_id: String, state: State<AppState>) -> R
     Ok(())
 }
 
+#[tauri::command]
+pub fn cancel_transcription(file_id: String, state: State<AppState>) {
+    // Mark as cancelled
+    state.cancelled.lock().unwrap().insert(file_id.clone());
+    // Update file status
+    update_file_status(&state, &file_id, FileStatus::Error, None, None, Some("Отменено".into()));
+}
+
 // ── Transcription commands ──────────────────────────────────────
 
 #[derive(Clone, serde::Serialize)]
@@ -252,6 +260,11 @@ pub async fn transcribe_file(
         });
     };
 
+    // Cancellation check helper
+    let is_cancelled = || -> bool {
+        state.cancelled.lock().unwrap().contains(&file_id)
+    };
+
     // Step 1: Decode audio to f32 samples at 16kHz mono
     let ext = input_path
         .extension()
@@ -285,6 +298,14 @@ pub async fn transcribe_file(
         ffmpeg_fallback(&state, input_path, &filename)?
     };
 
+    // Check cancellation after decode
+    if is_cancelled() {
+        emit_log("Отменено".to_string());
+        emit_update(&app_handle, &file_id, FileStatus::Error, None, None, Some("Отменено".to_string()));
+        state.cancelled.lock().unwrap().remove(&file_id);
+        return Ok(());
+    }
+
     // Update status → transcribing
     update_file_status(&state, &file_id, FileStatus::Transcribing, None, None, None);
     emit_update(&app_handle, &file_id, FileStatus::Transcribing, None, None, None);
@@ -295,11 +316,27 @@ pub async fn transcribe_file(
     state.transcription.load_model(&model_id, &model_path, &engine_type)?;
     emit_log("Модель загружена".to_string());
 
+    // Check cancellation after model load
+    if is_cancelled() {
+        emit_log("Отменено".to_string());
+        emit_update(&app_handle, &file_id, FileStatus::Error, None, None, Some("Отменено".to_string()));
+        state.cancelled.lock().unwrap().remove(&file_id);
+        return Ok(());
+    }
+
     // Step 4: Transcribe
     emit_log(format!("Транскрибация {:.1}с аудио...", audio.len() as f64 / 16000.0));
     log::info!("Transcribing {} with model {} ({:.1}s audio)", filename, model_id, audio.len() as f64 / 16000.0);
     let result = state.transcription.transcribe(&audio, &language, false)?;
     emit_progress("transcribing", 1.0);
+
+    // Check cancellation after transcription
+    if is_cancelled() {
+        emit_log("Отменено".to_string());
+        emit_update(&app_handle, &file_id, FileStatus::Error, None, None, Some("Отменено".to_string()));
+        state.cancelled.lock().unwrap().remove(&file_id);
+        return Ok(());
+    }
 
     // Update status → completed
     update_file_status(

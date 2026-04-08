@@ -23,7 +23,7 @@ const statusColors: Record<QueuedFile["status"], string> = {
 };
 
 function FileItem({ file }: { file: QueuedFile }) {
-  const { selectFile, selectedFileId, removeFile, retranscribeFile } = useTranscriptionStore();
+  const { selectFile, selectedFileId, removeFile, retranscribeFile, cancelTranscription } = useTranscriptionStore();
   const isSelected = selectedFileId === file.id;
   const isProcessing = file.status === "converting" || file.status === "transcribing";
   const hasProgress = isProcessing && file.progress !== undefined;
@@ -55,6 +55,18 @@ function FileItem({ file }: { file: QueuedFile }) {
               ? file.error.slice(0, 30)
               : statusLabels[file.status]}
         </span>
+
+        {isProcessing && (
+          <button
+            onClick={(e) => { e.stopPropagation(); cancelTranscription(file.id); }}
+            className="text-[var(--text-muted)] hover:text-[var(--error)] transition-colors"
+            title="Отменить"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 7.5A2.25 2.25 0 0 1 7.5 5.25h9a2.25 2.25 0 0 1 2.25 2.25v9a2.25 2.25 0 0 1-2.25 2.25h-9a2.25 2.25 0 0 1-2.25-2.25v-9Z" />
+            </svg>
+          </button>
+        )}
 
         {(file.status === "completed" || file.status === "error") && (
           <button

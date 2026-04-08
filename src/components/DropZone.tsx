@@ -1,12 +1,35 @@
+import { open } from "@tauri-apps/plugin-dialog";
+
 interface DropZoneProps {
   isDragging: boolean;
+  onFiles: (paths: string[]) => void;
 }
 
-function DropZone({ isDragging }: DropZoneProps) {
+function DropZone({ isDragging, onFiles }: DropZoneProps) {
+  const handleClick = async () => {
+    const selected = await open({
+      multiple: true,
+      filters: [
+        {
+          name: "Media",
+          extensions: [
+            "mp4", "mkv", "mov", "avi", "webm",
+            "mp3", "wav", "flac", "ogg", "m4a", "aac", "wma",
+          ],
+        },
+      ],
+    });
+    if (selected) {
+      const paths = Array.isArray(selected) ? selected : [selected];
+      onFiles(paths);
+    }
+  };
+
   return (
     <div
+      onClick={handleClick}
       className={`
-        flex flex-col items-center justify-center
+        flex flex-col items-center justify-center cursor-pointer
         rounded-xl border-2 border-dashed
         transition-all duration-200 ease-out
         min-h-[180px]
@@ -43,7 +66,7 @@ function DropZone({ isDragging }: DropZoneProps) {
       </p>
 
       <p className="mt-1 text-xs text-[var(--text-muted)]">
-        mp4 · mp3 · wav · m4a · mkv · webm · flac · mov
+        или нажмите для выбора · mp4 · mp3 · wav · m4a · mkv · webm
       </p>
     </div>
   );

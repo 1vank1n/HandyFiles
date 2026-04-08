@@ -35,9 +35,9 @@ function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showLog, setShowLog] = useState(false);
 
-  const { fetchModels, initListeners: initModelListeners, selectedModelId, language } =
+  const { fetchModels, selectedModelId, language } =
     useModelStore();
-  const { addFiles, transcribeFile, initListeners: initTranscriptionListeners, files } =
+  const { addFiles, transcribeFile, files } =
     useTranscriptionStore();
 
   const handleFileDrop = useCallback(
@@ -65,13 +65,19 @@ function App() {
 
   useEffect(() => {
     fetchModels();
-    const cleanups: (() => void)[] = [];
 
-    initModelListeners().then((fn) => cleanups.push(fn));
-    initTranscriptionListeners().then((fn) => cleanups.push(fn));
+    let cleanupModel: (() => void) | null = null;
+    let cleanupTranscription: (() => void) | null = null;
 
-    return () => cleanups.forEach((fn) => fn());
-  }, [fetchModels, initModelListeners, initTranscriptionListeners]);
+    useModelStore.getState().initListeners().then((fn) => { cleanupModel = fn; });
+    useTranscriptionStore.getState().initListeners().then((fn) => { cleanupTranscription = fn; });
+
+    return () => {
+      cleanupModel?.();
+      cleanupTranscription?.();
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const webview = getCurrentWebview();
@@ -138,7 +144,7 @@ function App() {
       {showModels && <ModelSelector />}
 
       {/* Drop Zone */}
-      <DropZone isDragging={isDragging} />
+      <DropZone isDragging={isDragging} onFiles={handleFileDrop} />
 
       {/* No model warning */}
       {!selectedModelId && hasFiles && (

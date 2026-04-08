@@ -47,6 +47,7 @@ interface TranscriptionStore {
   addFiles: (paths: string[]) => Promise<void>;
   transcribeFile: (fileId: string) => Promise<void>;
   retranscribeFile: (fileId: string) => Promise<void>;
+  cancelTranscription: (fileId: string) => Promise<void>;
   transcribeAll: () => Promise<void>;
   selectFile: (fileId: string) => void;
   clearCompleted: () => Promise<void>;
@@ -80,6 +81,21 @@ export const useTranscriptionStore = create<TranscriptionStore>((set, get) => ({
       await invoke("transcribe_file", { fileId });
     } catch (e) {
       console.error("Transcription failed:", e);
+    }
+  },
+
+  cancelTranscription: async (fileId: string) => {
+    try {
+      await invoke("cancel_transcription", { fileId });
+      set((state) => ({
+        files: state.files.map((f) =>
+          f.id === fileId
+            ? { ...f, status: "error" as const, error: "Отменено", progress: undefined, stage: undefined }
+            : f,
+        ),
+      }));
+    } catch (e) {
+      console.error("Cancel failed:", e);
     }
   },
 
